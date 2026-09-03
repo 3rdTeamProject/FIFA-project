@@ -10,8 +10,12 @@
 - 하루 API 호출 한도(개발단계 1,000건/일) 안에서 자동으로 멈추고,
   진행 상태(queue, seen_ouid, seen_match, seen_detail_match, queued_nicknames)를 파일에 저장해서
   다음 실행 때 이어간다.
-- 저장 시 player[].status(개인 플레이 기록)만 제거하고, 나머지는 원본 그대로 저장한다.
-  (spId, spPosition, spGrade는 승률 예측 모델의 핵심 feature 재료라 반드시 남긴다)
+- 저장은 API 응답을 통째로(가공/필터링 없이) matches.jsonl에 남긴다.
+  jsonl 용량 자체가 무시할 수준이라 저장 시점에 필드를 미리 지울 이유가 없고,
+  이미 API 호출 비용을 써서 받은 데이터를 저장 단계에서 버리면 나중에 다른 필드가
+  필요해졌을 때 재수집(=API 호출 재낭비)해야 한다. player[].status나 shootDetail처럼
+  안 쓰는 필드를 골라내는 작업은 CSV/학습 데이터로 가공하는 전처리 스크립트에서
+  필요한 필드만 뽑아 쓰는 방식으로 처리한다 (저장 단계가 아니라 가공 단계의 책임).
 
 실행 전에 아래 CONFIG 섹션만 채우면 된다.
 """
@@ -89,18 +93,6 @@ def get_match_detail(match_id):
     return _get("/match-detail", {"matchid": match_id})
 
 
-def strip_match_detail(detail):
-    """저장 전 필요 없는 부분 제거. player의 spId/spPosition/spGrade는 남기고 status만 뺀다."""
-    if not detail:
-        return detail
-    for match_info in detail.get("matchInfo", []):
-        for player in match_info.get("player", []):
-            player.pop("status", None)
-        # 지금 단계에서 안 쓰는 슈팅 좌표 상세도 용량을 줄이기 위해 제거
-        match_info.pop("shootDetail", None)
-    return detail
-
-
 def load_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r", encoding="utf-8") as f:
@@ -166,7 +158,6 @@ def main():
                     seen_detail_match.add(match_id)
                     if not detail:
                         continue
-                    detail = strip_match_detail(detail)
 
                     # 큐 확장: 살펴본 경기 전부에서 상대방 닉네임을 뽑아 큐에 추가
                     # (이미 처리된 유저뿐 아니라, 아직 처리 안 했지만 이미 큐에 들어가 있는 닉네임도 걸러서
