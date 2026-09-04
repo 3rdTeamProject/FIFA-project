@@ -1,9 +1,10 @@
 """
-win_prediction_baseline.py 스모크 테스트 (pytest 불필요, plain assert).
+preprocess.py / train.py / utils.py 스모크 테스트 (pytest 불필요, plain assert).
 
 실제 matches.jsonl / player_1000_final.csv가 아직 없어서, 확인된 실제 API 스키마를 본뜬
 합성 데이터(tests/fake_data.py)로 파이프라인 각 단계(파싱 -> feature 조립 -> leakage 체크 ->
-split -> 학습 -> 저장)가 에러 없이 동작하는지만 검증한다. 실제 데이터로의 최종 검증은 별도.
+3분할 -> sklearn Pipeline 학습 -> statsmodels 리포트 -> 저장)가 에러 없이 동작하는지만
+검증한다. 실제 데이터로의 최종 검증은 별도.
 
 실행: ./venv/Scripts/python.exe tests/test_pipeline_smoke.py
 """
@@ -13,17 +14,20 @@ import os
 import sys
 import tempfile
 
+import joblib
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import win_prediction_baseline as wpb
+import preprocess
+import train
+import utils
 from fake_data import make_fake_matches, make_fake_player_card_rows
 
 
 def test_extract_rows_filters_correctly():
     matches = make_fake_matches(n_normal=10)
-    rows_df = wpb.extract_rows(matches)
+    rows_df = preprocess.extract_rows(matches)
 
     # 무승부/몰수경기 matchId는 결과에 전혀 없어야 한다.
     assert "match_draw" not in set(rows_df["match_id"])
@@ -44,9 +48,9 @@ def test_extract_rows_filters_correctly():
 
 
 def test_assert_no_leakage():
-    wpb.assert_no_leakage(["avg_stat_score", "tier"])
+    preprocess.assert_no_leakage(["avg_stat_score", "tier"])
     try:
-        wpb.assert_no_leakage(["avg_stat_score", "goal_total"])
+        preprocess.assert_no_leakage(["avg_stat_score", "goal_total"])
     except AssertionError:
         pass
     else:
@@ -69,19 +73,19 @@ def test_full_pipeline_with_fake_data():
 
         output_dir = os.path.join(tmp_dir, "output")
 
-        wpb.assert_no_leakage(wpb.FEATURE_COLUMNS)
+        preprocess.assert_no_leakage(train.FEATURE_COLUMNS)
 
-        loaded_matches = wpb.load_matches(matches_path)
-        rows_df = wpb.extract_rows(loaded_matches)
+        loaded_matches = preprocess.load_matches(matches_path)
+        rows_df = preprocess.extract_rows(loaded_matches)
 
-        player_card_df = wpb.load_player_cards(csv_path)
-        feature_df, match_rate = wpb.assemble_feature_table(rows_df, player_card_df)
+        player_card_df = preprocess.load_player_cards(csv_path)
+        feature_df, match_rate = preprocess.assemble_feature_table(rows_df, player_card_df)
 
         assert match_rate == 100.0, f"fake 데이터는 전원 매칭되어야 하는데 {match_rate}%"
         assert feature_df["avg_stat_score"].isna().sum() == 0
         assert set(feature_df.columns) == {"match_id", "ouid", "avg_stat_score", "tier", "result"}
 
-        train_df, val_df, test_df = wpb.split_dataset(feature_df, output_dir)
+        train_df, val_df, test_df = train.split_dataset(feature_df, output_dir)
         assert len(train_df) + len(val_df) + len(test_df) == len(feature_df)
 
         split_path = os.path.join(output_dir, "split_assignment.json")
@@ -91,9 +95,12 @@ def test_full_pipeline_with_fake_data():
         assert len(split_data["rows"]) == len(feature_df)
         assert {r["split"] for r in split_data["rows"]} == {"train", "val", "test"}
 
-        model = wpb.train_model(train_df, wpb.FEATURE_COLUMNS)
-        val_metrics = wpb.evaluate_model(model, val_df, wpb.FEATURE_COLUMNS)
-        test_metrics = wpb.evaluate_model(model, test_df, wpb.FEATURE_COLUMNS)
+        pipeline = train.build_pipeline()
+        pipeline.fit(
+            train_df[train.FEATURE_COLUMNS].astype(float), train_df["result"].astype(int)
+        )
+        val_metrics = train.evaluate_pipeline(pipeline, val_df, train.FEATURE_COLUMNS)
+        test_metrics = train.evaluate_pipeline(pipeline, test_df, train.FEATURE_COLUMNS)
 
         for accuracy, p_value, _, _ in (val_metrics, test_metrics):
             assert 0.0 <= accuracy <= 1.0
@@ -102,13 +109,24 @@ def test_full_pipeline_with_fake_data():
             # baseline보다는 확실히 잘 맞아야 한다.
             assert accuracy > 0.5, f"fake 데이터에서 accuracy가 너무 낮음: {accuracy}"
 
-        summary_text = wpb.build_summary_text(
-            model, wpb.FEATURE_COLUMNS, len(train_df), match_rate, val_metrics, test_metrics,
-        )
-        wpb.save_outputs(model, summary_text, output_dir)
+        statsmodels_result = train.fit_statsmodels_report(train_df, train.FEATURE_COLUMNS)
 
-        assert os.path.exists(os.path.join(output_dir, "win_prediction_baseline_model.pkl"))
-        assert os.path.exists(os.path.join(output_dir, "win_prediction_baseline_summary.txt"))
+        summary_text = train.build_summary_text(
+            pipeline, statsmodels_result, train.FEATURE_COLUMNS, len(train_df), match_rate,
+            val_metrics, test_metrics,
+        )
+        model_path = os.path.join(output_dir, "win_prediction_baseline_pipeline.joblib")
+        summary_path = os.path.join(output_dir, "win_prediction_baseline_summary.txt")
+        utils.save_model(pipeline, model_path)
+        utils.save_text(summary_text, summary_path)
+
+        assert os.path.exists(model_path)
+        assert os.path.exists(summary_path)
+
+        # 저장된 pipeline을 다시 불러와도 정상 동작하는지 확인
+        reloaded = joblib.load(model_path)
+        reloaded_metrics = train.evaluate_pipeline(reloaded, test_df, train.FEATURE_COLUMNS)
+        assert reloaded_metrics[0] == test_metrics[0]
 
     print(
         f"OK: test_full_pipeline_with_fake_data "
@@ -121,7 +139,7 @@ def test_missing_csv_column_raises_clear_error():
         csv_path = os.path.join(tmp_dir, "bad_player_cards.csv")
         pd.DataFrame([{"spid": 1, "stat_short_pass": 50}]).to_csv(csv_path, index=False)
         try:
-            wpb.load_player_cards(csv_path)
+            preprocess.load_player_cards(csv_path)
         except ValueError as e:
             assert "stat_long_pass" in str(e)
         else:

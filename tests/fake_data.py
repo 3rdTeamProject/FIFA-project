@@ -1,5 +1,5 @@
 """
-win_prediction_baseline.py 단위 테스트용 합성(fake) 데이터 생성기.
+preprocess.py / train.py 단위 테스트용 합성(fake) 데이터 생성기.
 
 2026-09-04에 실제 Nexon API(match-detail)를 1회 호출해 확인한 스키마를 그대로 본떠
 matchInfo/matchDetail/player 구조를 만든다. 정상 케이스뿐 아니라 몰수경기, 무승부,
