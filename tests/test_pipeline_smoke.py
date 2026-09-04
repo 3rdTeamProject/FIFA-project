@@ -1,0 +1,137 @@
+"""
+win_prediction_baseline.py 스모크 테스트 (pytest 불필요, plain assert).
+
+실제 matches.jsonl / player_1000_final.csv가 아직 없어서, 확인된 실제 API 스키마를 본뜬
+합성 데이터(tests/fake_data.py)로 파이프라인 각 단계(파싱 -> feature 조립 -> leakage 체크 ->
+split -> 학습 -> 저장)가 에러 없이 동작하는지만 검증한다. 실제 데이터로의 최종 검증은 별도.
+
+실행: ./venv/Scripts/python.exe tests/test_pipeline_smoke.py
+"""
+
+import json
+import os
+import sys
+import tempfile
+
+import pandas as pd
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import win_prediction_baseline as wpb
+from fake_data import make_fake_matches, make_fake_player_card_rows
+
+
+def test_extract_rows_filters_correctly():
+    matches = make_fake_matches(n_normal=10)
+    rows_df = wpb.extract_rows(matches)
+
+    # 무승부/몰수경기 matchId는 결과에 전혀 없어야 한다.
+    assert "match_draw" not in set(rows_df["match_id"])
+    assert "match_forfeit" not in set(rows_df["match_id"])
+
+    # ouid_a_0은 match_0과 match_dup 양쪽에 등장하지만 1행만 남아야 한다.
+    assert (rows_df["ouid"] == "ouid_a_0").sum() == 1
+
+    # 정상 매치 10건 x 2 + dup 매치 2 - dup으로 제거된 1행 = 21행
+    # (무승부/몰수경기 매치도 각각 matchInfo 2건씩 만들지만 전부 필터링됨)
+    assert len(rows_df) == 21, f"expected 21 rows, got {len(rows_df)}"
+
+    # sp_ids에 SUB(spPosition==28) 선수가 섞여있으면 안 된다 (base_sp_id+100~102 제외 확인)
+    for sp_ids in rows_df["sp_ids"]:
+        assert len(sp_ids) == 11, f"SUB 제외 후 11명이어야 하는데 {len(sp_ids)}명"
+
+    print("OK: test_extract_rows_filters_correctly")
+
+
+def test_assert_no_leakage():
+    wpb.assert_no_leakage(["avg_stat_score", "tier"])
+    try:
+        wpb.assert_no_leakage(["avg_stat_score", "goal_total"])
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("leakage 컬럼을 걸러내지 못함")
+    print("OK: test_assert_no_leakage")
+
+
+def test_full_pipeline_with_fake_data():
+    matches = make_fake_matches(n_normal=40)
+    card_rows = make_fake_player_card_rows()
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        matches_path = os.path.join(tmp_dir, "matches.jsonl")
+        with open(matches_path, "w", encoding="utf-8") as f:
+            for m in matches:
+                f.write(json.dumps(m, ensure_ascii=False) + "\n")
+
+        csv_path = os.path.join(tmp_dir, "player_1000_final.csv")
+        pd.DataFrame(card_rows).to_csv(csv_path, index=False)
+
+        output_dir = os.path.join(tmp_dir, "output")
+
+        wpb.assert_no_leakage(wpb.FEATURE_COLUMNS)
+
+        loaded_matches = wpb.load_matches(matches_path)
+        rows_df = wpb.extract_rows(loaded_matches)
+
+        player_card_df = wpb.load_player_cards(csv_path)
+        feature_df, match_rate = wpb.assemble_feature_table(rows_df, player_card_df)
+
+        assert match_rate == 100.0, f"fake 데이터는 전원 매칭되어야 하는데 {match_rate}%"
+        assert feature_df["avg_stat_score"].isna().sum() == 0
+        assert set(feature_df.columns) == {"match_id", "ouid", "avg_stat_score", "tier", "result"}
+
+        train_df, val_df, test_df = wpb.split_dataset(feature_df, output_dir)
+        assert len(train_df) + len(val_df) + len(test_df) == len(feature_df)
+
+        split_path = os.path.join(output_dir, "split_assignment.json")
+        assert os.path.exists(split_path)
+        with open(split_path, "r", encoding="utf-8") as f:
+            split_data = json.load(f)
+        assert len(split_data["rows"]) == len(feature_df)
+        assert {r["split"] for r in split_data["rows"]} == {"train", "val", "test"}
+
+        model = wpb.train_model(train_df, wpb.FEATURE_COLUMNS)
+        val_metrics = wpb.evaluate_model(model, val_df, wpb.FEATURE_COLUMNS)
+        test_metrics = wpb.evaluate_model(model, test_df, wpb.FEATURE_COLUMNS)
+
+        for accuracy, p_value, _, _ in (val_metrics, test_metrics):
+            assert 0.0 <= accuracy <= 1.0
+            assert 0.0 <= p_value <= 1.0
+            # avg_stat_score가 승패와 강하게 상관되도록 fake 데이터를 만들었으니
+            # baseline보다는 확실히 잘 맞아야 한다.
+            assert accuracy > 0.5, f"fake 데이터에서 accuracy가 너무 낮음: {accuracy}"
+
+        summary_text = wpb.build_summary_text(
+            model, wpb.FEATURE_COLUMNS, len(train_df), match_rate, val_metrics, test_metrics,
+        )
+        wpb.save_outputs(model, summary_text, output_dir)
+
+        assert os.path.exists(os.path.join(output_dir, "win_prediction_baseline_model.pkl"))
+        assert os.path.exists(os.path.join(output_dir, "win_prediction_baseline_summary.txt"))
+
+    print(
+        f"OK: test_full_pipeline_with_fake_data "
+        f"(val_accuracy={val_metrics[0]:.3f}, test_accuracy={test_metrics[0]:.3f})"
+    )
+
+
+def test_missing_csv_column_raises_clear_error():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        csv_path = os.path.join(tmp_dir, "bad_player_cards.csv")
+        pd.DataFrame([{"spid": 1, "stat_short_pass": 50}]).to_csv(csv_path, index=False)
+        try:
+            wpb.load_player_cards(csv_path)
+        except ValueError as e:
+            assert "stat_long_pass" in str(e)
+        else:
+            raise AssertionError("컬럼 누락을 걸러내지 못함")
+    print("OK: test_missing_csv_column_raises_clear_error")
+
+
+if __name__ == "__main__":
+    test_extract_rows_filters_correctly()
+    test_assert_no_leakage()
+    test_full_pipeline_with_fake_data()
+    test_missing_csv_column_raises_clear_error()
+    print("\n모든 스모크 테스트 통과")
