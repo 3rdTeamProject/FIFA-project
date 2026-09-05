@@ -32,19 +32,16 @@ load_dotenv()
 # ============ CONFIG ============
 # API_KEY는 .env 파일의 NEXON_API_KEY에서 자동으로 채워짐 (여기서 직접 수정하지 말 것)
 API_KEY = os.environ.get("NEXON_API_KEY", "여기에_발급받은_API_키")
-
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SEED_NICKNAMES_FILE = os.path.join(REPO_ROOT, "data", "style", "seed_nicknames.json")
-
-# seed_nicknames.json에서 시드 닉네임 로드 (코드 수정 없이 닉네임 변경 가능)
-with open(SEED_NICKNAMES_FILE, "r", encoding="utf-8") as f:
-    SEED_NICKNAMES = json.load(f)
-
+# 아래부터 실행 전에 직접 채워야 하는 값. winrate 트랙과 같은 시드를 재사용해도 되고
+# (CLAUDE.md: 두 트랙에 유저가 겹쳐도 문제없음), 스타일 진단은 표본 다양성이 더 중요하니
+# 팀원 닉네임 등으로 자유롭게 바꿔도 된다.
+SEED_NICKNAMES = ["바람과함께살빼다", "고대넘버원호동생", "내일모레의용재시"]
 MATCHTYPE = 50  # 공식경기 (winrate/snowball_collect.py에서 확정된 값과 동일)
 MAX_MATCHES_PER_USER = 100  # api-constraints.md: /user/match limit 최대값
 DAILY_CALL_BUDGET = 950  # 일일 한도 1,000 중 여유 100 남김
 REQUEST_INTERVAL = 0.5  # 초당 5건 제한 대응
 
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATE_FILE = os.path.join(REPO_ROOT, "data", "style", "collect_state_style.json")
 OUT_FILE = os.path.join(REPO_ROOT, "data", "style", "matches_style.jsonl")
 # ====================================================
