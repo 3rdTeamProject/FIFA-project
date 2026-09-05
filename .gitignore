@@ -29,3 +29,6 @@ models/
 Thumbs.db
 .vscode/
 .idea/
+
+# Claude Code 개인 로컬 설정 (사람마다 다름, 공유하지 않음)
+.claude/settings.local.json
