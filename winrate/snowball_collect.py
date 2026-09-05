@@ -38,12 +38,15 @@ SEED_NICKNAMES = ["바람과함께살빼다", "고대넘버원호동생", "내�
 MATCHTYPE = 50  # 확정됨: "공식경기" (1대1 랭크 매치). /metadata/matchtype 전체 목록에서
 # 30=리그 친선, 40=클래식 1on1, 50=공식경기, 52=감독모드, 60=공식 친선,
 # 204/214/224/234=볼타 계열(3v3) 중 "1대1 공식경기" 요건에 정확히 부합하는 것은 50뿐.
-DAILY_CALL_BUDGET = 900  # 일일 한도 1,000 중 여유 100 남김
-REQUEST_INTERVAL = 0.35  # 초당 5건 제한 대응 (0.25초는 예산 소진 직전 429 발생해 0.35초로 늘림)
+DAILY_CALL_BUDGET = 950  # 일일 한도 1,000 중 여유 100 남김
+REQUEST_INTERVAL = 0.5  # 초당 5건 제한 대응 (0.25초는 예산 소진 직전 429 발생해 0.35초로 늘림)
 QUEUE_EXPAND_LIMIT = 2  # 큐 확장용으로 살펴볼 유저당 최근 경기 수 (matches.jsonl 저장은 여전히 유저당 1경기)
 
-STATE_FILE = "collect_state.json"
-OUT_FILE = "matches.jsonl"
+# 실행 위치(cwd)에 관계없이 항상 저장소 루트 기준 경로를 쓰도록 스크립트 파일 위치에서 계산한다
+# (winrate/ 폴더 안에서 실행해도 저장 위치가 갈라지지 않게 하기 위함).
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATE_FILE = os.path.join(REPO_ROOT, "data", "winrate", "collect_state.json")
+OUT_FILE = os.path.join(REPO_ROOT, "data", "winrate", "matches.jsonl")
 # ====================================================
 
 BASE_URL = "https://open.api.nexon.com/fconline/v1"
@@ -130,6 +133,7 @@ def main():
 
     rate_limited = False
 
+    os.makedirs(os.path.dirname(OUT_FILE), exist_ok=True)
     with open(OUT_FILE, "a", encoding="utf-8") as out:
         while queue and call_count < DAILY_CALL_BUDGET - 3:
             nickname = queue.pop(0)
