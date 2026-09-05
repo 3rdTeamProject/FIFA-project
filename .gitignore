@@ -18,6 +18,7 @@ matches.jsonl
 
 # 대용량/원본 데이터, 모델 산출물
 data/
+models/
 *.csv
 *.parquet
 *.pkl

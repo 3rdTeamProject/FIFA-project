@@ -11,10 +11,13 @@ spPosition == 28(SUB, 교체선수)은 스쿼드 계산에서 제외하는 기�
 """
 
 import json
+import os
 
 # ============ CONFIG ============
-MATCHES_FILE = "data/winrate/matches.jsonl"
-OUTPUT_FILE = "data/winrate/needed_spids.json"
+# 실행 위치(cwd)에 관계없이 항상 저장소 루트 기준 경로를 쓰도록 스크립트 파일 위치에서 계산한다.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MATCHES_FILE = os.path.join(REPO_ROOT, "data", "winrate", "matches.jsonl")
+OUTPUT_FILE = os.path.join(REPO_ROOT, "data", "winrate", "needed_spids.json")
 SUB_POSITION_CODE = 28
 # ====================================================
 

@@ -1,5 +1,5 @@
 """
-preprocess.py / train.py / utils.py 스모크 테스트 (pytest 불필요, plain assert).
+preprocess_winrate.py / train_winrate.py / utils.py 스모크 테스트 (pytest 불필요, plain assert).
 
 실제 matches.jsonl / player_1000_final.csv가 아직 없어서, 확인된 실제 API 스키마를 본뜬
 합성 데이터(tests/fake_data.py)로 파이프라인 각 단계(파싱 -> feature 조립 -> leakage 체크 ->
@@ -17,10 +17,11 @@ import tempfile
 import joblib
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(REPO_ROOT, "winrate"))
 
-import preprocess
-import train
+import preprocess_winrate as preprocess
+import train_winrate as train
 import utils
 from fake_data import make_fake_matches, make_fake_player_card_rows
 
@@ -40,15 +41,16 @@ def test_extract_rows_filters_correctly():
     # (무승부/몰수경기 매치도 각각 matchInfo 2건씩 만들지만 전부 필터링됨)
     assert len(rows_df) == 21, f"expected 21 rows, got {len(rows_df)}"
 
-    # sp_ids에 SUB(spPosition==28) 선수가 섞여있으면 안 된다 (base_sp_id+100~102 제외 확인)
-    for sp_ids in rows_df["sp_ids"]:
-        assert len(sp_ids) == 11, f"SUB 제외 후 11명이어야 하는데 {len(sp_ids)}명"
+    # sp_players에 SUB(spPosition==28) 선수가 섞여있으면 안 된다 (base_sp_id+100~102 제외 확인)
+    for sp_players in rows_df["sp_players"]:
+        assert len(sp_players) == 11, f"SUB 제외 후 11명이어야 하는데 {len(sp_players)}명"
+        assert all(p["sp_position"] != 28 for p in sp_players)
 
     print("OK: test_extract_rows_filters_correctly")
 
 
 def test_assert_no_leakage():
-    preprocess.assert_no_leakage(["avg_stat_score", "tier"])
+    preprocess.assert_no_leakage(preprocess.GROUP_SCORE_COLUMNS + ["tier"])
     try:
         preprocess.assert_no_leakage(["avg_stat_score", "goal_total"])
     except AssertionError:
@@ -82,8 +84,11 @@ def test_full_pipeline_with_fake_data():
         feature_df, match_rate = preprocess.assemble_feature_table(rows_df, player_card_df)
 
         assert match_rate == 100.0, f"fake 데이터는 전원 매칭되어야 하는데 {match_rate}%"
-        assert feature_df["avg_stat_score"].isna().sum() == 0
-        assert set(feature_df.columns) == {"match_id", "ouid", "avg_stat_score", "tier", "result"}
+        for col in preprocess.GROUP_SCORE_COLUMNS:
+            assert feature_df[col].isna().sum() == 0
+        assert set(feature_df.columns) == (
+            {"match_id", "ouid", "tier", "result"} | set(preprocess.GROUP_SCORE_COLUMNS)
+        )
 
         train_df, val_df, test_df = train.split_dataset(feature_df, output_dir)
         assert len(train_df) + len(val_df) + len(test_df) == len(feature_df)
@@ -105,8 +110,8 @@ def test_full_pipeline_with_fake_data():
         for accuracy, p_value, _, _ in (val_metrics, test_metrics):
             assert 0.0 <= accuracy <= 1.0
             assert 0.0 <= p_value <= 1.0
-            # avg_stat_score가 승패와 강하게 상관되도록 fake 데이터를 만들었으니
-            # baseline보다는 확실히 잘 맞아야 한다.
+            # avg_score 4개(attack/mid/defense/gk)가 승패와 강하게 상관되도록(업셋 섞어서
+            # 완전분리는 피하되) fake 데이터를 만들었으니 baseline보다는 확실히 잘 맞아야 한다.
             assert accuracy > 0.5, f"fake 데이터에서 accuracy가 너무 낮음: {accuracy}"
 
         statsmodels_result = train.fit_statsmodels_report(train_df, train.FEATURE_COLUMNS)
@@ -137,11 +142,11 @@ def test_full_pipeline_with_fake_data():
 def test_missing_csv_column_raises_clear_error():
     with tempfile.TemporaryDirectory() as tmp_dir:
         csv_path = os.path.join(tmp_dir, "bad_player_cards.csv")
-        pd.DataFrame([{"spid": 1, "stat_short_pass": 50}]).to_csv(csv_path, index=False)
+        pd.DataFrame([{"spid": 1, "속력": 50}]).to_csv(csv_path, index=False)
         try:
             preprocess.load_player_cards(csv_path)
         except ValueError as e:
-            assert "stat_long_pass" in str(e)
+            assert "가속력" in str(e)
         else:
             raise AssertionError("컬럼 누락을 걸러내지 못함")
     print("OK: test_missing_csv_column_raises_clear_error")
