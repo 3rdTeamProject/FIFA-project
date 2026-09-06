@@ -7,7 +7,6 @@ import numpy as np
 # ==================================================
 
 STYLE_FILE = "match_data/match_style_features.csv"
-ORIGINAL_FILE = "match_data/match_team_data.csv"
 OUTPUT_FILE = "match_data/match_ml_features.csv"
 
 
@@ -15,110 +14,18 @@ OUTPUT_FILE = "match_data/match_ml_features.csv"
 # 2. 데이터 불러오기
 # ==================================================
 
-style_df = pd.read_csv(STYLE_FILE)
-original_df = pd.read_csv(ORIGINAL_FILE)
+df = pd.read_csv(STYLE_FILE)
 
 print("=" * 70)
 print("ML Feature 데이터 생성")
 print("=" * 70)
 
 print("\n[데이터 불러오기]")
-print("Style 데이터:", style_df.shape)
-print("원본 데이터:", original_df.shape)
+print("Style 데이터:", df.shape)
 
 
 # ==================================================
-# 3. 원본 데이터에서 matchEndType 가져오기
-# ==================================================
-
-# 같은 경기의 같은 유저를 찾기 위해
-# matchId + ouid를 사용한다.
-#
-# matchEndType:
-# 0 = 정상종료
-# 1 = 몰수승
-# 2 = 몰수패
-
-end_type_df = original_df[
-    [
-        "matchId",
-        "ouid",
-        "matchEndType"
-    ]
-].copy()
-
-
-# 혹시 모를 중복 방지
-end_type_df = end_type_df.drop_duplicates(
-    subset=["matchId", "ouid"]
-)
-
-
-# ==================================================
-# 4. Style 데이터와 matchEndType 연결
-# ==================================================
-
-df = style_df.merge(
-    end_type_df,
-    on=["matchId", "ouid"],
-    how="left"
-)
-
-print("\n[matchEndType 연결 후]")
-print("데이터 크기:", df.shape)
-
-
-# ==================================================
-# 5. matchEndType 누락 확인
-# ==================================================
-
-missing_end_type = df["matchEndType"].isna().sum()
-
-print("matchEndType 누락:", missing_end_type)
-
-
-# ==================================================
-# 6. 정상종료 경기만 남기기
-# ==================================================
-
-print("\n[경기 종료 타입 분포 - 필터링 전]")
-
-print(
-    df["matchEndType"]
-    .value_counts(dropna=False)
-    .sort_index()
-    .to_string()
-)
-
-
-before_count = len(df)
-
-
-# 0 = 정상종료
-df = df[
-    df["matchEndType"] == 0
-].copy()
-
-
-after_count = len(df)
-
-removed_count = before_count - after_count
-
-
-print("\n[정상종료 경기 필터링]")
-
-print("필터링 전:", before_count)
-print("정상종료:", after_count)
-print("제외된 몰수 경기:", removed_count)
-
-print(
-    "제외 비율:",
-    f"{removed_count / before_count * 100:.2f}%"
-)
-
-
-# ==================================================
-# 7. 안전한 나눗셈 함수
+# 3. 안전한 나눗셈 함수
 # ==================================================
 
 def safe_divide(numerator, denominator):

@@ -11,6 +11,23 @@ df = pd.read_csv(input_path)
 
 print("원본 데이터 크기:", df.shape)
 
+# ==================================================
+# 정상 종료 경기만 사용
+# matchEndType == 0
+# ==================================================
+
+before_normal = len(df)
+
+df = df[
+    df["matchEndType"] == 0
+].copy()
+
+after_normal = len(df)
+
+print("정상 종료 필터 전:", before_normal)
+print("정상 종료 필터 후:", after_normal)
+print("비정상 종료 제거:", before_normal - after_normal)
+
 
 # ==================================================
 # 2. 플레이 스타일 분석에 사용할 컬럼 선택

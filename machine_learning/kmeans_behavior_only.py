@@ -11,7 +11,7 @@ from sklearn.preprocessing import StandardScaler
 # 설정
 # ============================================================
 
-INPUT_FILE = "match_data/match_ml_features.csv"
+INPUT_FILE = "match_data/user_style_features.csv"
 
 RESULT_DIR = "machine_learning"
 
@@ -25,7 +25,7 @@ N_INIT = 10
 # ============================================================
 
 print("=" * 70)
-print("K-Means 행동 중심 Feature 실험")
+print("유저 단위 K-Means 플레이스타일 실험")
 print("=" * 70)
 
 df = pd.read_csv(
@@ -42,34 +42,39 @@ print(
 # 2. K-Means에 사용할 행동 중심 Feature
 # ============================================================
 #
-# 기존 18개 Feature 중
+# 유저별 최근 경기들을 집계해서 만든 Feature 사용
 #
+# 성공률은 플레이스타일보다는
+# 결과/숙련도 성격이 강해서 K-Means 입력에서는 제외
+#
+# 제외:
 # pass_success_rate
 # effective_shoot_rate
 # tackle_success_rate
 # block_success_rate
 #
-# 성공률 4개를 제외함.
-#
-# 원본 CSV에서는 삭제하지 않고
-# K-Means 입력에서만 제외.
+# 식별용 컬럼도 제외:
+# ouid
+# nickname
+# division
+# match_count
 # ============================================================
 
 features = [
     "possession",
     "dribble",
-    "pass_per_possession",
+    "pass_per_match",
     "short_pass_rate",
     "long_pass_rate",
     "bouncing_lob_pass_rate",
     "driven_ground_pass_rate",
     "through_pass_rate",
     "lobbed_through_pass_rate",
-    "shoot_per_possession",
+    "shoot_per_match",
     "inside_penalty_rate",
     "heading_shoot_rate",
-    "tackle_per_possession",
-    "block_per_possession",
+    "tackle_per_match",
+    "block_per_match",
 ]
 
 
@@ -195,7 +200,7 @@ df_silhouette = pd.DataFrame(
 
 silhouette_file = os.path.join(
     RESULT_DIR,
-    "behavior_silhouette_scores.csv"
+    "user_style_silhouette_scores.csv"
 )
 
 df_silhouette.to_csv(
@@ -206,7 +211,7 @@ df_silhouette.to_csv(
 
 
 # ============================================================
-# 8. K=3 / K=4 상세 분석 함수
+# 8. 상세 분석 함수
 # ============================================================
 
 def analyze_k(k):
@@ -251,7 +256,7 @@ def analyze_k(k):
 
 
     # --------------------------------------------------------
-    # 군집별 개수
+    # 군집별 유저 수
     # --------------------------------------------------------
 
     counts = (
@@ -271,7 +276,7 @@ def analyze_k(k):
 
 
     print(
-        "\n군집별 데이터 개수"
+        "\n군집별 유저 수"
     )
 
 
@@ -279,7 +284,7 @@ def analyze_k(k):
 
         print(
             f"Cluster {cluster_id}: "
-            f"{counts[cluster_id]}개 "
+            f"{counts[cluster_id]}명 "
             f"({ratios[cluster_id]:.2f}%)"
         )
 
@@ -330,7 +335,7 @@ def analyze_k(k):
 
 
     # --------------------------------------------------------
-    # 각 군집에서 가장 높은/낮은 Feature
+    # 각 군집에서 가장 높은 / 낮은 Feature
     # --------------------------------------------------------
 
     print(
@@ -382,12 +387,50 @@ def analyze_k(k):
 
 
     # --------------------------------------------------------
+    # 군집별 유저 목록
+    # --------------------------------------------------------
+
+    print(
+        "\n군집별 유저 목록"
+    )
+
+
+    for cluster_id in sorted(
+        result_df["cluster"].unique()
+    ):
+
+        print(
+            f"\n[Cluster {cluster_id}]"
+        )
+
+        users = (
+            result_df[
+                result_df["cluster"] == cluster_id
+            ][
+                [
+                    "nickname",
+                    "match_count"
+                ]
+            ]
+            .sort_values(
+                "nickname"
+            )
+        )
+
+        print(
+            users.to_string(
+                index=False
+            )
+        )
+
+
+    # --------------------------------------------------------
     # 결과 저장
     # --------------------------------------------------------
 
     result_file = os.path.join(
         RESULT_DIR,
-        f"behavior_k{k}_cluster_result.csv"
+        f"user_style_k{k}_cluster_result.csv"
     )
 
     result_df.to_csv(
@@ -399,7 +442,7 @@ def analyze_k(k):
 
     center_file = os.path.join(
         RESULT_DIR,
-        f"behavior_k{k}_zscore_centers.csv"
+        f"user_style_k{k}_zscore_centers.csv"
     )
 
     centers.to_csv(
@@ -410,7 +453,7 @@ def analyze_k(k):
 
     raw_mean_file = os.path.join(
         RESULT_DIR,
-        f"behavior_k{k}_raw_means.csv"
+        f"user_style_k{k}_raw_means.csv"
     )
 
     raw_means.to_csv(
@@ -420,7 +463,7 @@ def analyze_k(k):
 
 
     print(
-        f"\n저장 완료:"
+        "\n저장 완료:"
     )
 
     print(
@@ -458,7 +501,7 @@ print(
 )
 
 print(
-    "행동 중심 Feature K-Means 실험 완료"
+    "유저 단위 K-Means 실험 완료"
 )
 
 print(
