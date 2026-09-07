@@ -39,7 +39,7 @@ SEED_NICKNAMES = ["바람과함께살빼다", "고대넘버원호동생", "내�
 MATCHTYPE = 50  # 공식경기 (winrate/snowball_collect.py에서 확정된 값과 동일)
 MAX_MATCHES_PER_USER = 100  # api-constraints.md: /user/match limit 최대값
 DAILY_CALL_BUDGET = 950  # 일일 한도 1,000 중 여유 100 남김
-REQUEST_INTERVAL = 0.5  # 초당 5건 제한 대응
+REQUEST_INTERVAL = 0.35  # 초당 5건 제한 대응
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATE_FILE = os.path.join(REPO_ROOT, "data", "style", "collect_state_style.json")

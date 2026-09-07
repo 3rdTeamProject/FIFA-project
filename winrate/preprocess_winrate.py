@@ -9,7 +9,8 @@ matches.jsonl 필드 매핑은 2026-09-04에 실제 API 응답(match-detail)을 
     matchInfo[i]["player"][j]["spPosition"] == 28   -> 교체선수(SUB), 스쿼드 계산에서 제외
 
 player_stats_final.csv는 2026-09-04에 팀원이 extract_needed_spids.py로 뽑은 spId
-2,916개를 API로 조회해 받아온 실물 파일(UTF-8, 2916행, 커버리지 100%)로
+2,916개를 API로 조회해 받아온 실물 파일(UTF-8, 2916행, 커버리지 100%)에
+2026-09-07 player_stats_final_v2.csv(1,271개, spid 중복 없음)를 병합해 총 4,187행이 된 파일로
 CSV_SPID_COLUMN / CSV_STAT_COLUMNS를 확정했다. 컬럼명이 바뀌면 이 파일 상단 CONFIG만
 고쳐서 맞추면 되도록 분리해뒀다. 필요한 컬럼이 없으면 조용히 넘어가지 않고 실제 컬럼
 목록을 보여주며 에러를 낸다.
@@ -74,7 +75,8 @@ POSITION_GROUP_MIDFIELD = {9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19}  # RDM~LAM
 POSITION_GROUP_ATTACK = {20, 21, 22, 23, 24, 25, 26, 27}  # RF~LW
 
 # --- player_stats_final.csv 컬럼 매핑 (2026-09-04 팀원이 우리 needed_spids.json 2,916개로
-# API 조회해 받아온 실물 파일로 확인됨, UTF-8, 2916행, spid 커버리지 100%) ---
+# API 조회해 받아온 실물 파일로 확인됨, UTF-8, spid 커버리지 100%; 2026-09-07 v2 1,271개
+# 병합으로 현재 4,187행, spid 중복 없음 확인됨) ---
 # 강화단계(spGrade)를 나타내는 컬럼이 파일에 없어, 이 스탯 값이 몇강 기준인지 확인 불가.
 # 확인 전까지는 강화단계를 무시하고 spId만으로 매칭하는 근사치로 취급한다 (한계로 명시).
 CSV_SPID_COLUMN = "spid"
