@@ -14,9 +14,9 @@ from bs4 import BeautifulSoup
 SPID_FILE = "needed_spids.json"
 
 # 저장 파일
-CHECKPOINT_FILE = "player_data/player_stats_checkpoint.csv"
-FINAL_FILE = "player_data/player_stats_final.csv"
-FAILED_FILE = "player_data/player_stats_failed.csv"
+CHECKPOINT_FILE = "player_data/player_stats_checkpoint_v2.csv"
+FINAL_FILE = "player_data/player_stats_final_v2.csv"
+FAILED_FILE = "player_data/player_stats_failed_v2.csv"
 
 # 신규 성공 몇 개마다 중간 저장할지
 SAVE_INTERVAL = 50

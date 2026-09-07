@@ -35,12 +35,12 @@ print("비정상 종료 제거:", before_normal - after_normal)
 
 selected_columns = [
 
-    # ------------------------------
     # 식별용 컬럼
     # 머신러닝 학습에는 안 넣지만
     # 나중에 어떤 경기/유저인지 확인하기 위해 유지
     # ------------------------------
     "matchId",
+    "matchDate",   
     "ouid",
     "nickname",
     "division",

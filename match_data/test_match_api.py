@@ -7,21 +7,18 @@ from dotenv import load_dotenv
 
 
 # ==================================================
-# 환경 설정
+# 1. 환경 설정
 # ==================================================
 
 load_dotenv()
 
 API_KEY = os.getenv("NEXON_API_KEY")
 
-
-# API KEY 확인
 if not API_KEY:
     raise ValueError(
         "NEXON_API_KEY가 없습니다. "
         ".env 파일을 확인해주세요."
     )
-
 
 headers = {
     "x-nxopen-api-key": API_KEY
@@ -29,122 +26,84 @@ headers = {
 
 
 # ==================================================
-# 수집할 유저
+# 2. 수집할 유저
 # ==================================================
 #
-# 목표:
-# 약 40~50명
-# 유저당 최근 20경기
+# 기존 유저든 신규 유저든 여기에 닉네임만 넣으면 됨.
 #
-# 기존에 수집했던 유저보다
-# 새로운 유저를 넣는 것을 권장
+# 기존 데이터가 있으면:
+# → 기존 JSON을 최대한 재사용
+# → 부족한 정상 경기만 추가 수집
+#
+# 신규 유저면:
+# → 0개부터 시작
+# → 정상 종료 70경기까지 수집
 # ==================================================
 
 nicknames = [
-    "리센느원E",
-    "빠다하트영철",
-    "윤비뇨기과",
-    "닭집닭똥집",
-    "부캐키우기",
-    "MadridistaCF",
-    "로또일등시켜주라",
-    "펠레친구팰래",
-    "보정받는중입니다",
-    "영악",
-    "순갓",
-
-    "ll아재ll",
-    "킹오넬갓시",
-    "강X수",
-    "ASEN1",
-    "창업주",
-    "오빵달료",
-    "축명",
-    "차관",
-    "기뭐녁",
-    "영농의희망찬내일",
-
-    "포람페911",
-    "dop쭌",
-    "신림동하늘다람쥐",
-    "사딸란타",
-    "영천퀵",
-    "타겟터메시",
-    "까칠한명수씨",
-    "해외출장그만",
-    "FIFA구독",
-    "금나우지뉴",
-
-    "하이도",
-    "밍크왕",
-    "명수는십잡스",
-    "스주니",
-    "순갓",
-    "ckhy",
-    "서휘재",
-    "조지호마짤",
-    "ZZFC",
-    "앙리마미",
-
-    "오픈ai",
-    "가나가나가나나가",
-    "방구석레알",
-    "ACMilan밀라노",
-    "쿠마이누",
-    "유혹하는웃음폭탄",
-    "바른구단주명9487",
-    "ATM한국지부장",
-    "DCB호날두",
-    "IIIllIIlllIl",
-
-    "AstonVillans",
-    "WALTER11",
-    "최강슈",
-    "다크서클레인저스",
-    "행복한베컴",
-    "ll아재ll",
-    "AbsoluteLegend",
-    "하쿠지Hakuji",
-    "채팅좀예쁘게해라",
-    "감성티스푼",
-
-    "엘에프씨",
-    "고수르",
-    "위송빠레",
-    "EXCELLENTVISION",
-    "사비에르난데스s",
-    "원블루",
-    "15일뒤사라짐",
-    "판타스틱준",
-    "뛰어봐",
-    "TopPrice0"
-
-    # 여기에 새로운 닉네임 추가
+    "보구리너지",
+    "당신은승리자",
+    "KRXChan",
+    "디발라의낭만",
+    "BenzJCW",
+    "물안경남친",
+    "복숭아맛사과",
+    "극소수",
+    "KRXTak",
+    "snag1wonNoparent",
+    "리바이브말맨",
+    "걸리면빽태클",
+    "리바이브이원희",
+    "DRXSavior",
+    "GCTCrong",
+    "BFXKaiser",
+    "태연",
+    "2014MSN",
+    
 ]
 
 
 # ==================================================
-# 수집 설정
+# 3. 수집 설정
 # ==================================================
 
-# 한 유저당 최근 경기 수
-MATCH_LIMIT = 20
+# 최종 목표:
+# 유저당 정상 종료 경기 100개
+TARGET_NORMAL_MATCHES = 70
+
+
+# 경기 목록을 한 번에 몇 개씩 가져올지
+PAGE_SIZE = 100
+
+
+# 한 유저당 최대 몇 경기까지 과거로 탐색할지
+#
+# 예:
+# 0 ~ 99
+# 100 ~ 199
+# 200 ~ 299
+# 300 ~ 399
+# 400 ~ 499
+#
+MAX_SEARCH_MATCHES = 500
+
 
 # 공식경기 1vs1
 MATCH_TYPE = 50
 
-# 정상 요청 사이 대기 시간
+
+# 정상 요청 사이 대기
 REQUEST_DELAY = 0.15
 
-# 재시도 횟수
+
+# 일반 네트워크 / 서버 오류
 MAX_RETRIES = 3
 
-# 재시도 대기 시간
 RETRY_DELAY = 5
 
 
 # ==================================================
-# 저장 경로
+# 4. 저장 경로
 # ==================================================
 
 BASE_DIR = os.path.dirname(
@@ -162,23 +121,30 @@ os.makedirs(
 )
 
 
+RESULT_FILE = os.path.join(
+    BASE_DIR,
+    "normal_70_users.json"
+)
+
+
 # ==================================================
-# API 요청 횟수 카운터
+# 5. 전역 상태
 # ==================================================
 
 api_request_count = 0
 
+API_LIMIT_REACHED = False
+
+
+# 이번 실행에서 새로 저장한 경기
+processed_match_ids = set()
+
 
 # ==================================================
-# 이미 저장된 matchId 불러오기
-# ==================================================
-#
-# raw_data 폴더에 이미 저장되어 있는 JSON 파일은
-# 다시 API로 상세 조회하지 않는다.
+# 6. 기존 저장 경기 목록
 # ==================================================
 
 saved_match_ids = set()
-
 
 for file_name in os.listdir(RAW_DIR):
 
@@ -194,7 +160,7 @@ for file_name in os.listdir(RAW_DIR):
 
 
 print("=" * 70)
-print("FC Online 경기 데이터 수집 시작")
+print("FC Online 정상 종료 경기 수집 시작")
 print("=" * 70)
 
 print(
@@ -202,31 +168,155 @@ print(
     len(saved_match_ids)
 )
 
+print(
+    "유저당 목표 정상 경기:",
+    TARGET_NORMAL_MATCHES
+)
 
-# ==================================================
-# 이번 실행에서 성공적으로 처리한 경기
-# ==================================================
-#
-# 여러 유저의 경기 목록에 같은 matchId가
-# 반복해서 등장할 수 있음.
-#
-# 성공적으로 상세 조회한 경기만 여기에 추가한다.
-#
-# 실패한 경기는 넣지 않기 때문에
-# 다른 유저의 경기 목록에서 다시 발견되면
-# 다시 시도할 수 있다.
-# ==================================================
-
-processed_match_ids = set()
+print(
+    "최대 탐색 경기:",
+    MAX_SEARCH_MATCHES
+)
 
 
 # ==================================================
-# OUID 조회
+# 7. 결과
+# ==================================================
+
+eligible_users = []
+
+incomplete_users = []
+
+
+# ==================================================
+# 8. API 제한 처리
+# ==================================================
+
+def set_api_limit_reached(message):
+
+    global API_LIMIT_REACHED
+
+    API_LIMIT_REACHED = True
+
+    print()
+    print("=" * 70)
+    print("API 요청 제한(429) 발생")
+    print(message)
+    print("추가 API 요청을 즉시 중단합니다.")
+    print("=" * 70)
+
+
+# ==================================================
+# 9. 공통 GET 요청
+# ==================================================
+
+def api_get(url, params, description):
+
+    global api_request_count
+    global API_LIMIT_REACHED
+
+    if API_LIMIT_REACHED:
+        return None
+
+    for attempt in range(
+        1,
+        MAX_RETRIES + 1
+    ):
+
+        try:
+
+            response = requests.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=15
+            )
+
+            api_request_count += 1
+
+        except requests.exceptions.RequestException as e:
+
+            print(
+                f"[네트워크 오류] {description} "
+                f"({attempt}/{MAX_RETRIES}):",
+                e
+            )
+
+            if attempt < MAX_RETRIES:
+
+                time.sleep(
+                    RETRY_DELAY
+                )
+
+                continue
+
+            return None
+
+
+        # ------------------------------------------
+        # 성공
+        # ------------------------------------------
+
+        if response.status_code == 200:
+
+            return response.json()
+
+
+        # ------------------------------------------
+        # 429
+        # ------------------------------------------
+
+        if response.status_code == 429:
+
+            set_api_limit_reached(
+                description
+            )
+
+            return None
+
+
+        # ------------------------------------------
+        # 서버 오류
+        # ------------------------------------------
+
+        if 500 <= response.status_code < 600:
+
+            print(
+                f"[서버 오류] {description} "
+                f"상태 코드: {response.status_code} "
+                f"({attempt}/{MAX_RETRIES})"
+            )
+
+            if attempt < MAX_RETRIES:
+
+                time.sleep(
+                    RETRY_DELAY
+                )
+
+                continue
+
+            return None
+
+
+        # ------------------------------------------
+        # 기타 오류
+        # ------------------------------------------
+
+        print(
+            f"[API 오류] {description} "
+            f"상태 코드: {response.status_code}"
+        )
+
+        return None
+
+    return None
+
+
+# ==================================================
+# 10. 닉네임 → OUID
 # ==================================================
 
 def get_ouid(nickname):
-
-    global api_request_count
 
     url = (
         "https://open.api.nexon.com/"
@@ -237,117 +327,41 @@ def get_ouid(nickname):
         "nickname": nickname
     }
 
+    return_data = api_get(
+        url,
+        params,
+        f"OUID 조회: {nickname}"
+    )
 
-    for attempt in range(
-        1,
-        MAX_RETRIES + 1
-    ):
-
-        try:
-
-            response = requests.get(
-                url,
-                headers=headers,
-                params=params,
-                timeout=15
-            )
-
-            api_request_count += 1
-
-
-        except requests.exceptions.RequestException as e:
-
-            print(
-                f"[OUID 네트워크 오류] "
-                f"{nickname} "
-                f"({attempt}/{MAX_RETRIES}):",
-                e
-            )
-
-            if attempt < MAX_RETRIES:
-
-                time.sleep(
-                    RETRY_DELAY
-                )
-
-                continue
-
-            return None
-
-
-        # 정상 응답
-        if response.status_code == 200:
-
-            data = response.json()
-
-            return data.get(
-                "ouid"
-            )
-
-
-        # 요청 제한
-        if response.status_code == 429:
-
-            print(
-                f"[OUID 429 요청 제한] "
-                f"{nickname} "
-                f"({attempt}/{MAX_RETRIES})"
-            )
-
-            if attempt < MAX_RETRIES:
-
-                time.sleep(
-                    10
-                )
-
-                continue
-
-            return None
-
-
-        # 서버 오류
-        if 500 <= response.status_code < 600:
-
-            print(
-                f"[OUID 서버 오류] "
-                f"{nickname} "
-                f"상태 코드: "
-                f"{response.status_code} "
-                f"({attempt}/{MAX_RETRIES})"
-            )
-
-            if attempt < MAX_RETRIES:
-
-                time.sleep(
-                    RETRY_DELAY
-                )
-
-                continue
-
-            return None
-
-
-        # 그 외 오류
-        print(
-            f"[OUID 조회 실패] "
-            f"{nickname} "
-            f"상태 코드: "
-            f"{response.status_code}"
-        )
-
+    if return_data is None:
         return None
 
-
-    return None
+    return return_data.get(
+        "ouid"
+    )
 
 
 # ==================================================
-# 경기 목록 조회
+# 11. 경기 목록 조회
+# ==================================================
+#
+# ★ 기존 코드와 가장 중요한 차이
+#
+# offset을 외부에서 전달받음.
+#
+# offset = 0
+# offset = 100
+# offset = 200
+# ...
+#
+# 이렇게 과거 경기로 계속 이동 가능
 # ==================================================
 
-def get_match_ids(ouid):
-
-    global api_request_count
+def get_match_ids(
+    ouid,
+    offset,
+    limit
+):
 
     url = (
         "https://open.api.nexon.com/"
@@ -357,113 +371,30 @@ def get_match_ids(ouid):
     params = {
         "ouid": ouid,
         "matchtype": MATCH_TYPE,
-        "offset": 0,
-        "limit": MATCH_LIMIT
+        "offset": offset,
+        "limit": limit
     }
 
-
-    for attempt in range(
-        1,
-        MAX_RETRIES + 1
-    ):
-
-        try:
-
-            response = requests.get(
-                url,
-                headers=headers,
-                params=params,
-                timeout=15
-            )
-
-            api_request_count += 1
-
-
-        except requests.exceptions.RequestException as e:
-
-            print(
-                f"[경기 목록 네트워크 오류] "
-                f"({attempt}/{MAX_RETRIES}):",
-                e
-            )
-
-            if attempt < MAX_RETRIES:
-
-                time.sleep(
-                    RETRY_DELAY
-                )
-
-                continue
-
-            return []
-
-
-        # 정상 응답
-        if response.status_code == 200:
-
-            return response.json()
-
-
-        # 요청 제한
-        if response.status_code == 429:
-
-            print(
-                f"[경기 목록 429 요청 제한] "
-                f"({attempt}/{MAX_RETRIES})"
-            )
-
-            if attempt < MAX_RETRIES:
-
-                time.sleep(
-                    10
-                )
-
-                continue
-
-            return []
-
-
-        # 서버 오류
-        if 500 <= response.status_code < 600:
-
-            print(
-                f"[경기 목록 서버 오류] "
-                f"상태 코드: "
-                f"{response.status_code} "
-                f"({attempt}/{MAX_RETRIES})"
-            )
-
-            if attempt < MAX_RETRIES:
-
-                time.sleep(
-                    RETRY_DELAY
-                )
-
-                continue
-
-            return []
-
-
-        # 그 외 오류
-        print(
-            "[경기 목록 조회 실패]",
-            "상태 코드:",
-            response.status_code
+    data = api_get(
+        url,
+        params,
+        (
+            f"경기 목록 조회 "
+            f"ouid={ouid}, offset={offset}"
         )
+    )
 
+    if data is None:
         return []
 
-
-    return []
+    return data
 
 
 # ==================================================
-# 경기 상세 조회
+# 12. 경기 상세 조회
 # ==================================================
 
 def get_match_detail(match_id):
-
-    global api_request_count
 
     url = (
         "https://open.api.nexon.com/"
@@ -474,121 +405,168 @@ def get_match_detail(match_id):
         "matchid": match_id
     }
 
+    return api_get(
+        url,
+        params,
+        f"경기 상세 조회: {match_id}"
+    )
 
-    for attempt in range(
-        1,
-        MAX_RETRIES + 1
+
+# ==================================================
+# 13. 기존 JSON 읽기
+# ==================================================
+
+def load_saved_match(match_id):
+
+    file_path = os.path.join(
+        RAW_DIR,
+        f"{match_id}.json"
+    )
+
+    if not os.path.exists(
+        file_path
     ):
+        return None
 
-        try:
+    try:
 
-            response = requests.get(
-                url,
-                headers=headers,
-                params=params,
-                timeout=15
-            )
+        with open(
+            file_path,
+            "r",
+            encoding="utf-8"
+        ) as f:
 
-            api_request_count += 1
+            return json.load(f)
 
-
-        except requests.exceptions.RequestException as e:
-
-            print(
-                f"[경기 상세 네트워크 오류] "
-                f"{match_id} "
-                f"({attempt}/{MAX_RETRIES}):",
-                e
-            )
-
-            # 네트워크 오류도 재시도
-            if attempt < MAX_RETRIES:
-
-                time.sleep(
-                    RETRY_DELAY
-                )
-
-                continue
-
-            return None
-
-
-        # ------------------------------------------
-        # 정상 응답
-        # ------------------------------------------
-
-        if response.status_code == 200:
-
-            return response.json()
-
-
-        # ------------------------------------------
-        # 요청 제한
-        # ------------------------------------------
-
-        if response.status_code == 429:
-
-            print(
-                f"[429 요청 제한] "
-                f"{match_id} "
-                f"({attempt}/{MAX_RETRIES})"
-            )
-
-            if attempt < MAX_RETRIES:
-
-                time.sleep(
-                    10
-                )
-
-                continue
-
-            return None
-
-
-        # ------------------------------------------
-        # 서버 오류
-        # ------------------------------------------
-
-        if 500 <= response.status_code < 600:
-
-            print(
-                f"[서버 오류] "
-                f"{match_id} "
-                f"상태 코드: "
-                f"{response.status_code} "
-                f"({attempt}/{MAX_RETRIES})"
-            )
-
-            if attempt < MAX_RETRIES:
-
-                time.sleep(
-                    RETRY_DELAY
-                )
-
-                continue
-
-            return None
-
-
-        # ------------------------------------------
-        # 그 외 오류
-        # ------------------------------------------
+    except (
+        OSError,
+        json.JSONDecodeError
+    ) as e:
 
         print(
-            "[경기 상세 조회 실패]",
+            "[기존 JSON 읽기 실패]",
             match_id,
-            "상태 코드:",
-            response.status_code
+            e
         )
 
         return None
 
 
-    return None
+# ==================================================
+# 14. JSON 저장
+# ==================================================
+
+def save_match(
+    match_id,
+    match_data
+):
+
+    file_path = os.path.join(
+        RAW_DIR,
+        f"{match_id}.json"
+    )
+
+    try:
+
+        with open(
+            file_path,
+            "w",
+            encoding="utf-8"
+        ) as f:
+
+            json.dump(
+                match_data,
+                f,
+                ensure_ascii=False,
+                indent=2
+            )
+
+        saved_match_ids.add(
+            match_id
+        )
+
+        processed_match_ids.add(
+            match_id
+        )
+
+        return True
+
+    except OSError as e:
+
+        print(
+            "[JSON 저장 실패]",
+            match_id,
+            e
+        )
+
+        return False
 
 
 # ==================================================
-# 유저별 데이터 수집
+# 15. 현재 경기에서 해당 유저가 정상 종료했는지 확인
+# ==================================================
+
+def is_normal_match_for_user(
+    match_data,
+    ouid
+):
+
+    if not isinstance(
+        match_data,
+        dict
+    ):
+        return False
+
+
+    match_info_list = match_data.get(
+        "matchInfo",
+        []
+    )
+
+
+    if not isinstance(
+        match_info_list,
+        list
+    ):
+        return False
+
+
+    for player_info in match_info_list:
+
+        if not isinstance(
+            player_info,
+            dict
+        ):
+            continue
+
+
+        # 현재 수집 대상 유저인지 확인
+        if player_info.get(
+            "ouid"
+        ) != ouid:
+
+            continue
+
+
+        match_detail = player_info.get(
+            "matchDetail",
+            {}
+        )
+
+
+        # matchEndType == 0이면 정상 종료
+        return (
+            match_detail.get(
+                "matchEndType"
+            ) == 0
+        )
+
+
+    return False
+
+
+# ==================================================
+# 16. 유저별 수집
 # ==================================================
 
 for user_number, nickname in enumerate(
@@ -596,33 +574,44 @@ for user_number, nickname in enumerate(
     start=1
 ):
 
+    if API_LIMIT_REACHED:
+        break
+
+
     print()
     print("=" * 70)
 
     print(
-        f"{user_number}/{len(nicknames)} "
-        f"유저 수집 시작: {nickname}"
+        f"[{user_number}/{len(nicknames)}] "
+        f"{nickname}"
     )
 
     print("=" * 70)
 
 
-    # ----------------------------------------------
-    # 1. OUID 조회
-    # ----------------------------------------------
+    # ==================================================
+    # 16-1. OUID
+    # ==================================================
 
     ouid = get_ouid(
         nickname
     )
 
 
+    if API_LIMIT_REACHED:
+        break
+
+
     if ouid is None:
 
         print(
-            f"{nickname} "
-            f"OUID 조회 실패 → "
-            f"이 유저는 건너뜁니다."
+            "OUID 조회 실패"
         )
+
+        incomplete_users.append({
+            "nickname": nickname,
+            "reason": "OUID 조회 실패"
+        })
 
         continue
 
@@ -638,184 +627,81 @@ for user_number, nickname in enumerate(
     )
 
 
-    # ----------------------------------------------
-    # 2. 최근 경기 목록 조회
-    # ----------------------------------------------
+    # ==================================================
+    # 16-2. 유저별 상태
+    # ==================================================
 
-    match_ids = get_match_ids(
-        ouid
-    )
+    normal_match_ids = []
 
-
-    print(
-        f"{nickname}의 API 반환 경기 수:",
-        len(match_ids)
-    )
-
-
-    if len(match_ids) == 0:
-
-        print(
-            f"{nickname}: "
-            f"수집 가능한 경기가 없습니다."
-        )
-
-        continue
-
-
-    time.sleep(
-        REQUEST_DELAY
-    )
-
-
-    # ----------------------------------------------
-    # 유저별 통계
-    # ----------------------------------------------
-
-    new_count = 0
+    seen_match_ids = set()
 
     existing_count = 0
 
-    duplicate_in_run_count = 0
+    new_count = 0
+
+    abnormal_count = 0
 
     fail_count = 0
 
+    searched_count = 0
 
-    # ----------------------------------------------
-    # 3. 경기 상세 조회
-    # ----------------------------------------------
 
-    for match_number, match_id in enumerate(
-        match_ids,
-        start=1
+    # ==================================================
+    # 16-3. 70경기씩 과거 방향으로 탐색
+    # ==================================================
+
+    for offset in range(
+        0,
+        MAX_SEARCH_MATCHES,
+        PAGE_SIZE
     ):
 
-        file_path = os.path.join(
-            RAW_DIR,
-            f"{match_id}.json"
+        if API_LIMIT_REACHED:
+            break
+
+
+        # 이미 정상경기 100개면 끝
+        if len(normal_match_ids) >= TARGET_NORMAL_MATCHES:
+            break
+
+
+        print()
+        print(
+            f"[경기 목록 탐색] "
+            f"offset={offset}"
         )
 
 
-        # ==========================================
-        # 이미 과거에 저장된 경기
-        # ==========================================
-
-        if match_id in saved_match_ids:
-
-            existing_count += 1
-
-            print(
-                f"{match_number}번째 경기 "
-                f"기존 저장 데이터 사용:",
-                match_id
-            )
-
-            continue
-
-
-        # ==========================================
-        # 이번 실행 중 이미 성공적으로 처리한 경기
-        # ==========================================
-
-        if match_id in processed_match_ids:
-
-            duplicate_in_run_count += 1
-
-            print(
-                f"{match_number}번째 경기 "
-                f"이번 실행 중 중복:",
-                match_id
-            )
-
-            continue
-
-
-        # ==========================================
-        # 실제 API 상세 조회
-        # ==========================================
-
-        match_data = get_match_detail(
-            match_id
+        match_ids = get_match_ids(
+            ouid,
+            offset,
+            PAGE_SIZE
         )
 
 
-        # ==========================================
-        # API 상세 조회 실패
-        # ==========================================
-        #
-        # processed_match_ids에는 넣지 않는다.
-        #
-        # 따라서 다른 유저의 경기 목록에서
-        # 같은 matchId가 다시 발견되면 재시도 가능.
-        # ==========================================
+        if API_LIMIT_REACHED:
+            break
 
-        if match_data is None:
 
-            fail_count += 1
+        # 더 이상 경기 없음
+        if not match_ids:
 
             print(
-                f"{match_number}번째 경기 "
-                f"조회/저장 실패:",
-                match_id
+                "더 이상 조회 가능한 경기가 없습니다."
             )
 
-            continue
+            break
 
 
-        # ==========================================
-        # JSON 저장
-        # ==========================================
-
-        try:
-
-            with open(
-                file_path,
-                "w",
-                encoding="utf-8"
-            ) as f:
-
-                json.dump(
-                    match_data,
-                    f,
-                    ensure_ascii=False,
-                    indent=2
-                )
-
-
-        except OSError as e:
-
-            fail_count += 1
-
-            print(
-                f"{match_number}번째 경기 "
-                f"파일 저장 실패:",
-                match_id,
-                e
-            )
-
-            continue
-
-
-        # ==========================================
-        # 저장까지 성공한 경기만 처리 완료
-        # ==========================================
-
-        processed_match_ids.add(
-            match_id
+        # 실제 반환 개수
+        page_match_count = len(
+            match_ids
         )
-
-        saved_match_ids.add(
-            match_id
-        )
-
-
-        new_count += 1
 
 
         print(
-            f"{match_number}번째 경기 "
-            f"저장 완료:",
-            match_id
+            "이번 목록 경기 수:",
+            page_match_count
         )
 
 
@@ -824,19 +710,192 @@ for user_number, nickname in enumerate(
         )
 
 
-    # ----------------------------------------------
-    # 유저별 결과 출력
-    # ----------------------------------------------
+        # ==================================================
+        # 각 경기 확인
+        # ==================================================
+
+        for match_id in match_ids:
+
+            if API_LIMIT_REACHED:
+                break
+
+
+            # 정상 70경기 확보 즉시 종료
+            if len(normal_match_ids) >= TARGET_NORMAL_MATCHES:
+                break
+
+
+            # 같은 유저 탐색 중 중복 방지
+            if match_id in seen_match_ids:
+                continue
+
+
+            seen_match_ids.add(
+                match_id
+            )
+
+            searched_count += 1
+
+
+            # ------------------------------------------
+            # 기존 JSON 존재
+            # ------------------------------------------
+
+            if match_id in saved_match_ids:
+
+                match_data = load_saved_match(
+                    match_id
+                )
+
+                if match_data is not None:
+
+                    existing_count += 1
+
+                    if is_normal_match_for_user(
+                        match_data,
+                        ouid
+                    ):
+
+                        normal_match_ids.append(
+                            match_id
+                        )
+
+                        print(
+                            f"[기존] 정상 "
+                            f"{len(normal_match_ids)}/"
+                            f"{TARGET_NORMAL_MATCHES}"
+                        )
+
+                    else:
+
+                        abnormal_count += 1
+
+                    continue
+
+
+            # ------------------------------------------
+            # 새로운 경기
+            # → 상세 API 호출
+            # ------------------------------------------
+
+            match_data = get_match_detail(
+                match_id
+            )
+
+
+            if API_LIMIT_REACHED:
+                break
+
+
+            if match_data is None:
+
+                fail_count += 1
+
+                continue
+
+
+            # ------------------------------------------
+            # JSON 저장
+            # ------------------------------------------
+
+            if save_match(
+                match_id,
+                match_data
+            ):
+
+                new_count += 1
+
+            else:
+
+                fail_count += 1
+
+                continue
+
+
+            # ------------------------------------------
+            # 정상 종료 여부 확인
+            # ------------------------------------------
+
+            if is_normal_match_for_user(
+                match_data,
+                ouid
+            ):
+
+                normal_match_ids.append(
+                    match_id
+                )
+
+                print(
+                    f"[신규] 정상 "
+                    f"{len(normal_match_ids)}/"
+                    f"{TARGET_NORMAL_MATCHES}"
+                )
+
+            else:
+
+                abnormal_count += 1
+
+                print(
+                    "[신규] 비정상 종료"
+                )
+
+
+            time.sleep(
+                REQUEST_DELAY
+            )
+
+
+        # ==================================================
+        # 페이지 끝
+        # ==================================================
+
+        print()
+        print(
+            f"현재 정상경기: "
+            f"{len(normal_match_ids)}/"
+            f"{TARGET_NORMAL_MATCHES}"
+        )
+
+
+        # 100개 달성
+        if len(normal_match_ids) >= TARGET_NORMAL_MATCHES:
+            break
+
+
+        # 100개보다 적게 반환되었다면
+        # 더 과거 경기가 없는 것으로 판단
+        if page_match_count < PAGE_SIZE:
+
+            print(
+                "마지막 경기 목록에 도달했습니다."
+            )
+
+            break
+
+
+    # ==================================================
+    # 16-4. 유저 결과
+    # ==================================================
+
+    normal_count = len(
+        normal_match_ids
+    )
+
 
     print()
-
+    print("-" * 70)
     print(
-        f"[{nickname} 수집 결과]"
+        f"[{nickname} 결과]"
     )
 
     print(
-        "API 반환 경기 수:",
-        len(match_ids)
+        "탐색한 경기:",
+        searched_count
+    )
+
+    print(
+        "기존 JSON 사용:",
+        existing_count
     )
 
     print(
@@ -845,28 +904,176 @@ for user_number, nickname in enumerate(
     )
 
     print(
-        "기존 저장 경기:",
-        existing_count
+        "비정상 종료:",
+        abnormal_count
     )
 
     print(
-        "이번 실행 중 중복:",
-        duplicate_in_run_count
-    )
-
-    print(
-        "실패:",
+        "조회 실패:",
         fail_count
     )
 
     print(
-        "현재까지 API 요청 수:",
+        "정상 종료 확보:",
+        normal_count
+    )
+
+    print(
+        "현재까지 API 요청:",
         api_request_count
+    )
+
+    print("-" * 70)
+
+
+    # ==================================================
+    # 16-5. 70경기 성공
+    # ==================================================
+
+    if normal_count >= TARGET_NORMAL_MATCHES:
+
+        # 혹시 모르니 정확히 100개만 기록
+        normal_match_ids = normal_match_ids[
+            :TARGET_NORMAL_MATCHES
+        ]
+
+
+        print(
+            f"✅ {nickname}: "
+            "정상 종료 70경기 확보 완료"
+        )
+
+
+        eligible_users.append({
+
+            "nickname":
+                nickname,
+
+            "ouid":
+                ouid,
+
+            "normal_match_count":
+                TARGET_NORMAL_MATCHES,
+
+            "normal_match_ids":
+                normal_match_ids
+        })
+
+
+    # ==================================================
+    # 16-6. 미완료
+    # ==================================================
+
+    else:
+
+        if API_LIMIT_REACHED:
+
+            reason = (
+                "API 429 제한으로 수집 중단"
+            )
+
+        else:
+
+            reason = (
+                "정상 종료 70경기 미확보"
+            )
+
+
+        print(
+            f"❌ {nickname}: "
+            f"정상 종료 {normal_count}경기"
+        )
+
+
+        incomplete_users.append({
+
+            "nickname":
+                nickname,
+
+            "ouid":
+                ouid,
+
+            "normal_match_count":
+                normal_count,
+
+            "reason":
+                reason
+        })
+
+
+    # ==================================================
+    # 16-7. 429이면 전체 종료
+    # ==================================================
+
+    if API_LIMIT_REACHED:
+
+        print()
+        print("=" * 70)
+        print(
+            "API 요청 제한으로 전체 수집을 종료합니다."
+        )
+        print(
+            "지금까지 저장된 JSON은 그대로 유지됩니다."
+        )
+        print(
+            "다음 실행에서 기존 JSON을 다시 사용합니다."
+        )
+        print("=" * 70)
+
+        break
+
+
+# ==================================================
+# 17. 결과 JSON 저장
+# ==================================================
+
+result_data = {
+
+    "target_normal_matches":
+        TARGET_NORMAL_MATCHES,
+
+    "match_type":
+        MATCH_TYPE,
+
+    "max_search_matches":
+        MAX_SEARCH_MATCHES,
+
+    "api_limit_reached":
+        API_LIMIT_REACHED,
+
+    "api_request_count":
+        api_request_count,
+
+    "eligible_user_count":
+        len(eligible_users),
+
+    "eligible_users":
+        eligible_users,
+
+    "incomplete_user_count":
+        len(incomplete_users),
+
+    "incomplete_users":
+        incomplete_users
+}
+
+
+with open(
+    RESULT_FILE,
+    "w",
+    encoding="utf-8"
+) as f:
+
+    json.dump(
+        result_data,
+        f,
+        ensure_ascii=False,
+        indent=2
     )
 
 
 # ==================================================
-# 전체 결과
+# 18. 최종 결과
 # ==================================================
 
 json_files = [
@@ -885,11 +1092,7 @@ json_files = [
 
 print()
 print("=" * 70)
-
-print(
-    "경기 데이터 수집 완료"
-)
-
+print("FC Online 정상 종료 경기 수집 종료")
 print("=" * 70)
 
 print(
@@ -898,13 +1101,94 @@ print(
 )
 
 print(
-    "이번 실행에서 API 요청 수:",
+    "이번 실행 API 요청 수:",
     api_request_count
 )
 
 print(
-    "이번 실행에서 새로 저장한 고유 경기 수:",
+    "이번 실행 새로 저장한 경기:",
     len(processed_match_ids)
 )
+
+print(
+    "정상 종료 70경기 달성 유저:",
+    len(eligible_users)
+)
+
+print(
+    "미완료 유저:",
+    len(incomplete_users)
+)
+
+print(
+    "API 제한 발생:",
+    API_LIMIT_REACHED
+)
+
+print(
+    "결과 저장:",
+    RESULT_FILE
+)
+
+
+print()
+print("[정상 종료 100경기 달성]")
+
+if eligible_users:
+
+    for user in eligible_users:
+
+        print(
+            "-",
+            user["nickname"],
+            "/",
+            user["normal_match_count"],
+            "경기"
+        )
+
+else:
+
+    print("없음")
+
+
+print()
+print("[미완료]")
+
+if incomplete_users:
+
+    for user in incomplete_users:
+
+        print(
+            "-",
+            user["nickname"],
+            "/",
+            user.get(
+                "normal_match_count",
+                0
+            ),
+            "/",
+            user["reason"]
+        )
+
+else:
+
+    print("없음")
+
+
+if API_LIMIT_REACHED:
+
+    print()
+    print(
+        "⚠️ API 429 제한 때문에 중단되었습니다."
+    )
+
+    print(
+        "이미 저장된 JSON은 삭제되지 않았습니다."
+    )
+
+    print(
+        "제한이 풀린 뒤 같은 코드를 다시 실행하면 됩니다."
+    )
+
 
 print("=" * 70)
