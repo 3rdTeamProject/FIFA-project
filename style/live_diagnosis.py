@@ -48,11 +48,26 @@ POS_NAME = {
     25: "ST", 26: "LS", 27: "LW", 28: "SUB",
 }
 
-PASS_LABEL_MAP = {
-    "short_pass_ratio": "숏패스 위주",
-    "long_pass_ratio": "롱패스 위주",
-    "through_pass_ratio": "스루패스 위주",
-    "driven_ground_pass_ratio": "드리븐그라운드패스 위주",
+# 군집 번호 -> 사후 라벨 (data/style/style_diagnosis_baseline_summary.txt의 [군집별 feature
+# 평균]을 보고, 각 군집이 다른 군집 대비 뚜렷하게 높은 feature를 기준으로 붙였다 —
+# CLAUDE.md 원칙 #4: 이름은 군집 결과가 나온 뒤 사후에 붙인다).
+#   pass  0: through_pass_ratio가 세 군집 중 가장 높음(0.198 vs 0.128/0.132)
+#   pass  1: short_pass_ratio가 압도적으로 높고 나머지가 다 낮음(0.764)
+#   pass  2: driven_ground_pass_ratio가 세 군집 중 가장 높음(0.164 vs 0.058/0.059)
+#   shoot 0: in_penalty는 2와 비슷하게 높지만 heading이 셋 중 가장 낮음(0.090)
+#   shoot 1: in_penalty_shoot_ratio가 셋 중 가장 낮음(0.689) -> 상대적으로 중거리슛 비중 ↑
+#   shoot 2: heading_shoot_ratio가 다른 군집의 두 배 이상(0.218)
+# ⚠️ models/style_diagnosis_baseline.joblib을 train_style.py로 다시 학습하면 군집 번호
+# 순서가 바뀔 수 있다 — 재학습 시 반드시 새 요약 파일을 다시 보고 이 매핑을 갱신할 것.
+PASS_CLUSTER_LABELS = {
+    0: "스루패스 위주",
+    1: "숏패스 위주",
+    2: "드리븐그라운드패스 위주",
+}
+SHOOT_CLUSTER_LABELS = {
+    0: "박스 안(인패널티) 슈팅 위주",
+    1: "중거리슛 위주",
+    2: "헤딩슛 위주",
 }
 # ====================================================
 
@@ -208,18 +223,22 @@ def score_squad(user_style, squad, player_stats=None):
     return {"slots": results, "squad_fit_score": squad_fit_score}
 
 
-def generate_diagnosis_sentence(user_style, squad_scores):
+def generate_diagnosis_sentence(user_style, squad_scores, pass_cluster, shoot_cluster):
     """규칙 기반 진단 문장 (CLAUDE.md 핵심 기능 5번 예시 형식).
 
     특정 카드를 콕 집어 추천하지 않고, 가장 궁합이 낮은 포지션과 방향성만 제시한다.
+
+    패스/슛 스타일은 유저 본인의 raw 비율 중 max()로 뽑지 않는다 — 축구 게임 특성상
+    거의 모든 유저가 short_pass_ratio가 제일 커서, max()로는 사실상 항상 "숏패스 위주"만
+    나오고 predict_style_clusters()가 계산한 K-means 군집 배정 결과가 버려지는 문제가
+    있었다. 대신 그 유저가 실제로 배정된 pass_cluster/shoot_cluster 번호를
+    PASS_CLUSTER_LABELS/SHOOT_CLUSTER_LABELS로 사후 라벨링해 사용한다.
     """
-    pass_ratios = {c: user_style[c] for c in preprocess.PASS_FEATURE_COLUMNS if user_style[c] == user_style[c]}
-    if not pass_ratios:
-        return "패스 스타일을 판단할 표본이 부족합니다."
-    dominant_axis, dominant_value = max(pass_ratios.items(), key=lambda kv: kv[1])
+    pass_label = PASS_CLUSTER_LABELS.get(pass_cluster, f"패스 군집 {pass_cluster}")
+    shoot_label = SHOOT_CLUSTER_LABELS.get(shoot_cluster, f"슛 군집 {shoot_cluster}")
 
     valid = [r for r in squad_scores["slots"] if r["position_fit"] == r["position_fit"]]
-    lines = [f"당신은 {PASS_LABEL_MAP[dominant_axis]} 스타일입니다 ({dominant_axis}={dominant_value:.1%})."]
+    lines = [f"당신은 {pass_label} · {shoot_label} 스타일입니다."]
     if valid:
         worst = min(valid, key=lambda r: r["position_fit"])
         lines.append(
@@ -251,7 +270,7 @@ def diagnose(nickname, n_matches=N_MATCHES):
         }
 
     squad_scores = score_squad(user_style, squad)
-    sentence = generate_diagnosis_sentence(user_style, squad_scores)
+    sentence = generate_diagnosis_sentence(user_style, squad_scores, pass_cluster, shoot_cluster)
 
     return {
         "ouid": ouid,

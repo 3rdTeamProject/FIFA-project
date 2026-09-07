@@ -149,8 +149,10 @@ def test_generate_diagnosis_sentence_mentions_weakest_position():
     }
     squad = [{"sp_id": sp_id, "sp_position": pos} for sp_id, pos in zip(MAIN_SQUAD_IDS, SQUAD_POSITIONS)]
     squad_scores = ld.score_squad(user_style, squad, player_stats=_fake_player_stats())
-    sentence = ld.generate_diagnosis_sentence(user_style, squad_scores)
+    # pass_cluster=1 -> "숏패스 위주", shoot_cluster=2 -> "헤딩슛 위주" (PASS/SHOOT_CLUSTER_LABELS 참고)
+    sentence = ld.generate_diagnosis_sentence(user_style, squad_scores, pass_cluster=1, shoot_cluster=2)
     assert "숏패스 위주" in sentence
+    assert "헤딩슛 위주" in sentence
     valid = [r for r in squad_scores["slots"] if r["position_fit"] == r["position_fit"]]
     worst = min(valid, key=lambda r: r["position_fit"])
     assert worst["pos_name"] in sentence
