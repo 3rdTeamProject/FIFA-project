@@ -21,18 +21,20 @@ MATCH_TEAM_CSV = os.path.join(
     "match_team_data.csv"
 )
 
-MATCH_PLAYER_CSV = os.path.join(
-    BASE_DIR,
-    "match_player_data.csv"
-)
-
 
 # ==================================================
 # 2. 저장할 데이터
 # ==================================================
 
 match_rows = []
-match_player_rows = []
+
+
+# 몰수 / 비정상 종료로 제외된 경기
+excluded_match_ids = set()
+
+
+# 정상 종료로 처리된 경기
+normal_match_ids = set()
 
 
 # ==================================================
@@ -56,11 +58,11 @@ json_files = sorted([
 
 
 print("=" * 70)
-print("JSON → CSV 변환 시작")
+print("JSON → MATCH_TEAM CSV 변환 시작")
 print("=" * 70)
 
 print(
-    "JSON 파일 수:",
+    "전체 JSON 파일 수:",
     len(json_files)
 )
 
@@ -128,7 +130,7 @@ for file_number, file_name in enumerate(
 
 
     # --------------------------------------------------
-    # 양쪽 유저
+    # 양쪽 유저 정보
     # --------------------------------------------------
 
     match_infos = data.get(
@@ -145,6 +147,67 @@ for file_number, file_name in enumerate(
 
         continue
 
+
+    # ==================================================
+    # 5. 몰수승 / 몰수패 / 비정상 경기 제거
+    # ==================================================
+    #
+    # 한 경기의 양쪽 유저 matchEndType을 확인
+    #
+    # 둘 중 하나라도 matchEndType != 0 이면
+    # 해당 경기 전체를 CSV에서 제외
+    #
+    # matchEndType == 0
+    # → 정상 종료 경기
+    #
+    # 기존 raw_data JSON 파일 자체는 삭제하지 않음.
+    # ==================================================
+
+    is_normal_match = True
+
+
+    for user_data in match_infos:
+
+        match_detail = user_data.get(
+            "matchDetail",
+            {}
+        )
+
+        match_end_type = match_detail.get(
+            "matchEndType"
+        )
+
+
+        if match_end_type != 0:
+
+            is_normal_match = False
+
+            break
+
+
+    # --------------------------------------------------
+    # 비정상 종료 경기
+    # → CSV 변환하지 않고 건너뜀
+    # --------------------------------------------------
+
+    if not is_normal_match:
+
+        excluded_match_ids.add(
+            match_id
+        )
+
+        continue
+
+
+    # 정상 경기 기록
+    normal_match_ids.add(
+        match_id
+    )
+
+
+    # ==================================================
+    # 6. 정상 종료 경기의 양쪽 유저 처리
+    # ==================================================
 
     for user_data in match_infos:
 
@@ -184,16 +247,20 @@ for file_number, file_name in enumerate(
         )
 
 
-        # 정상 종료 / 몰수
+        # 정상 종료 여부
+        #
+        # 여기까지 온 경기는 정상 종료이므로
+        # 기본적으로 0
         match_end_type = match_detail.get(
             "matchEndType"
         )
 
 
-        # 현재 API에서 등급 정보가 어디에 포함됐는지에 대비
+        # 등급 정보
         division = user_data.get(
             "division"
         )
+
 
         if division is None:
 
@@ -382,41 +449,59 @@ for file_number, file_name in enumerate(
         # ==================================================
         # MATCH_TEAM 행 생성
         # ==================================================
+        #
+        # 기존 컬럼은 그대로 유지
+        # ==================================================
 
         match_rows.append({
 
-            "matchId": match_id,
+            "matchId":
+                match_id,
 
-            "matchDate": match_date,
+            "matchDate":
+                match_date,
 
-            "matchType": match_type,
+            "matchType":
+                match_type,
 
-            "ouid": ouid,
+            "ouid":
+                ouid,
 
-            "nickname": nickname,
+            "nickname":
+                nickname,
 
-            "division": division,
+            "division":
+                division,
 
-            "seasonId": season_id,
+            "seasonId":
+                season_id,
 
-            "matchResult": match_result,
+            "matchResult":
+                match_result,
 
-            "matchEndType": match_end_type,
+            "matchEndType":
+                match_end_type,
 
-            "possession": possession,
+            "possession":
+                possession,
 
-            "dribble": dribble,
+            "dribble":
+                dribble,
 
-            "passTry": pass_try,
+            "passTry":
+                pass_try,
 
-            "passSuccess": pass_success,
+            "passSuccess":
+                pass_success,
 
-            "shortPassTry": short_pass_try,
+            "shortPassTry":
+                short_pass_try,
 
             "shortPassSuccess":
                 short_pass_success,
 
-            "longPassTry": long_pass_try,
+            "longPassTry":
+                long_pass_try,
 
             "longPassSuccess":
                 long_pass_success,
@@ -480,94 +565,70 @@ for file_number, file_name in enumerate(
         })
 
 
-        # ==================================================
-        # MATCH_PLAYER
-        # ==================================================
+    # ==================================================
+    # 진행 상황 출력
+    # ==================================================
 
-        player_list = user_data.get(
-            "player",
-            []
-        )
-
-
-        for player in player_list:
-
-            match_player_rows.append({
-
-                "matchId":
-                    match_id,
-
-                "ouid":
-                    ouid,
-
-                "nickname":
-                    nickname,
-
-                "spId":
-                    player.get(
-                        "spId"
-                    ),
-
-                "spPosition":
-                    player.get(
-                        "spPosition"
-                    ),
-
-                "spGrade":
-                    player.get(
-                        "spGrade"
-                    )
-            })
-
-
-    # 너무 많은 로그 방지
     if (
         file_number % 50 == 0
         or file_number == len(json_files)
     ):
 
         print(
-            f"{file_number}/{len(json_files)} 처리 완료"
+            f"{file_number}/"
+            f"{len(json_files)} 처리 완료"
         )
 
 
 # ==================================================
-# 5. DataFrame
+# 7. DataFrame 생성
 # ==================================================
 
 match_df = pd.DataFrame(
     match_rows
 )
 
-match_player_df = pd.DataFrame(
-    match_player_rows
-)
+
+# ==================================================
+# 8. 중복 제거
+# ==================================================
+#
+# 같은 경기 + 같은 유저가
+# 여러 번 들어가는 경우 방지
+# ==================================================
+
+if not match_df.empty:
+
+    match_df = match_df.drop_duplicates(
+        subset=[
+            "matchId",
+            "ouid"
+        ]
+    )
 
 
 # ==================================================
-# 6. 중복 제거
+# 9. 정렬
 # ==================================================
 
-match_df = match_df.drop_duplicates(
-    subset=[
-        "matchId",
-        "ouid"
-    ]
-)
+if not match_df.empty:
 
-
-match_player_df = match_player_df.drop_duplicates(
-    subset=[
-        "matchId",
-        "ouid",
-        "spId",
-        "spPosition"
-    ]
-)
+    match_df = match_df.sort_values(
+        by=[
+            "matchDate",
+            "matchId",
+            "ouid"
+        ],
+        ascending=[
+            False,
+            True,
+            True
+        ]
+    )
 
 
 # ==================================================
-# 7. CSV 저장
+# 10. CSV 저장
 # ==================================================
 
 match_df.to_csv(
@@ -577,35 +638,62 @@ match_df.to_csv(
 )
 
 
-match_player_df.to_csv(
-    MATCH_PLAYER_CSV,
-    index=False,
-    encoding="utf-8-sig"
-)
-
-
 # ==================================================
-# 8. 결과 확인
+# 11. 결과 확인
 # ==================================================
 
 print()
 print("=" * 70)
-print("JSON → CSV 변환 완료")
+print("JSON → MATCH_TEAM CSV 변환 완료")
 print("=" * 70)
 
+
 print(
-    "MATCH_TEAM 행 수:",
+    "전체 원본 JSON:",
+    len(json_files)
+)
+
+print(
+    "정상 종료 경기:",
+    len(normal_match_ids)
+)
+
+print(
+    "몰수/비정상 제외 경기:",
+    len(excluded_match_ids)
+)
+
+print(
+    "최종 MATCH_TEAM 행 수:",
     len(match_df)
 )
 
-print(
-    "MATCH_PLAYER 행 수:",
-    len(match_player_df)
-)
 
+# ==================================================
+# 12. matchEndType 최종 확인
+# ==================================================
+
+if not match_df.empty:
+
+    print()
+    print("[최종 matchEndType 분포]")
+
+    print(
+        match_df[
+            "matchEndType"
+        ].value_counts(
+            dropna=False
+        ).sort_index()
+    )
+
+
+# ==================================================
+# 13. 주요 결측치 확인
+# ==================================================
 
 print()
 print("[MATCH_TEAM 주요 결측치]")
+
 
 check_columns = [
     "matchId",
@@ -626,19 +714,20 @@ for column in check_columns:
 
         print(
             f"{column}:",
-            match_df[column].isna().sum()
+            match_df[
+                column
+            ].isna().sum()
         )
 
+
+# ==================================================
+# 14. 저장 위치
+# ==================================================
 
 print()
 print(
     "MATCH_TEAM 저장:",
     MATCH_TEAM_CSV
-)
-
-print(
-    "MATCH_PLAYER 저장:",
-    MATCH_PLAYER_CSV
 )
 
 print("=" * 70)
