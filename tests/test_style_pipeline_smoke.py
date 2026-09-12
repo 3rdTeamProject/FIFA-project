@@ -6,6 +6,9 @@ data/style/match_team_data.csv(팀원이 팀 단위로 평탄화해 수집한 �
 표준화 -> k 탐색 -> KMeans -> 저장)가 에러 없이 동작하는지, 그리고 뚜렷이 다른 스타일
 그룹을 실제로 구분해내는지만 검증한다. 실제 데이터로의 최종 검증은 별도.
 
+2026-09-08: 슛 모델(in_penalty+heading 통합)이 헤딩축/슛위치축 2개로 분리되면서
+패스/헤딩/슛위치 3개 모델을 검증하도록 갱신했다.
+
 실행: ./venv/Scripts/python.exe tests/test_style_pipeline_smoke.py
 """
 
@@ -44,7 +47,11 @@ def test_aggregate_user_style_filters_sparse_users():
     # 표본 부족 유저(3경기)는 min_matches=10 미만이라 제외되어야 한다.
     assert "sparse_user" not in set(style_df["ouid"])
 
-    for col in preprocess.PASS_FEATURE_COLUMNS + preprocess.SHOOT_FEATURE_COLUMNS:
+    feature_columns = (
+        preprocess.PASS_FEATURE_COLUMNS + preprocess.HEADING_FEATURE_COLUMNS
+        + preprocess.SHOT_LOCATION_FEATURE_COLUMNS
+    )
+    for col in feature_columns:
         assert col in style_df.columns
         assert style_df[col].notna().all()
         assert (style_df[col] >= 0).all()
@@ -79,51 +86,46 @@ def test_full_pipeline_with_fake_data():
         # 스타일 그룹 3개 x 유저 5명 = 15명 (표본 부족/몰수경기 유저는 별도라 안 섞임)
         assert len(style_df) == 15, f"expected 15 users, got {len(style_df)}"
 
-        pass_result = train.run_style_clustering(style_df, preprocess.PASS_FEATURE_COLUMNS)
-        shoot_result = train.run_style_clustering(style_df, preprocess.SHOOT_FEATURE_COLUMNS)
-        for result in (pass_result, shoot_result):
+        results = []
+        for key, feature_columns, label_column in train.MODEL_SPECS:
+            result = train.run_style_clustering(style_df, feature_columns)
             assert 2 <= result["best_k"] <= 6
             assert -1.0 <= result["best_score"] <= 1.0
+            style_df[label_column] = result["labels"]
+            style_df[f"{key}_pca_x"] = result["coords"][:, 0]
+            if result["coords"].shape[1] > 1:
+                style_df[f"{key}_pca_y"] = result["coords"][:, 1]
+            results.append(result)
 
-        style_df = style_df.copy()
-        style_df["pass_style_type"] = pass_result["labels"]
-        style_df["shoot_style_type"] = shoot_result["labels"]
-        style_df["pass_pca_x"] = pass_result["coords"][:, 0]
-        style_df["pass_pca_y"] = pass_result["coords"][:, 1]
-        style_df["shoot_pca_x"] = shoot_result["coords"][:, 0]
-        style_df["shoot_pca_y"] = shoot_result["coords"][:, 1]
-
-        # 뚜렷이 다른 3그룹으로 데이터를 만들었으니, 최적 k로 나눈 군집이 실제 프로필
+        # 뚜렷이 다른 3그룹으로 데이터를 만들었으니, 각 모델이 나눈 군집이 실제 프로필
         # 그룹(ouid 접두사)과 강하게 일치해야 한다 (완벽히 3이 아니어도 되지만 최소한
         # 같은 그룹 유저끼리는 대부분 같은 군집으로 묶여야 한다).
         style_df["true_group"] = style_df["ouid"].str.rsplit("_", n=1).str[0]
-        pass_mismatch_rate = _mismatch_rate(style_df, "pass_style_type")
-        shoot_mismatch_rate = _mismatch_rate(style_df, "shoot_style_type")
-        assert pass_mismatch_rate <= 0.2, (
-            f"패스 모델이 뚜렷이 다른 스타일 그룹을 잘 못 갈랐음 (mismatch_rate={pass_mismatch_rate:.2f})"
-        )
-        assert shoot_mismatch_rate <= 0.2, (
-            f"슛 모델이 뚜렷이 다른 스타일 그룹을 잘 못 갈랐음 (mismatch_rate={shoot_mismatch_rate:.2f})"
-        )
+        mismatch_rates = {}
+        for key, _, label_column in train.MODEL_SPECS:
+            rate = _mismatch_rate(style_df, label_column)
+            mismatch_rates[key] = rate
+            assert rate <= 0.2, (
+                f"{key} 모델이 뚜렷이 다른 스타일 그룹을 잘 못 갈랐음 (mismatch_rate={rate:.2f})"
+            )
 
-        pass_summary = train.build_cluster_summary(style_df, preprocess.PASS_FEATURE_COLUMNS, "pass_style_type")
-        shoot_summary = train.build_cluster_summary(style_df, preprocess.SHOOT_FEATURE_COLUMNS, "shoot_style_type")
+        summaries = [
+            train.build_cluster_summary(style_df, feature_columns, label_column)
+            for _, feature_columns, label_column in train.MODEL_SPECS
+        ]
         summary_text = train.build_summary_text(
-            len(style_df), preprocess.MIN_MATCHES_PER_USER,
-            pass_result, shoot_result, pass_summary, shoot_summary,
+            len(style_df), preprocess.MIN_MATCHES_PER_USER, results, summaries,
         )
 
         model_path = os.path.join(model_dir, "style_diagnosis_baseline.joblib")
         csv_path = os.path.join(output_dir, "user_style_profile.csv")
         summary_path = os.path.join(output_dir, "style_diagnosis_baseline_summary.txt")
 
-        utils.save_model(
-            {
-                "pass": {"scaler": pass_result["scaler"], "kmeans": pass_result["kmeans"], "pca": pass_result["pca"]},
-                "shoot": {"scaler": shoot_result["scaler"], "kmeans": shoot_result["kmeans"], "pca": shoot_result["pca"]},
-            },
-            model_path,
-        )
+        model_dict = {
+            key: {"scaler": result["scaler"], "kmeans": result["kmeans"], "pca": result["pca"]}
+            for (key, _, _), result in zip(train.MODEL_SPECS, results)
+        }
+        utils.save_model(model_dict, model_path)
         utils.ensure_dir(output_dir)
         style_df.to_csv(csv_path, index=False)
         utils.save_text(summary_text, summary_path)
@@ -133,15 +135,15 @@ def test_full_pipeline_with_fake_data():
         assert os.path.exists(summary_path)
 
         reloaded = joblib.load(model_path)
-        assert "pass" in reloaded and "shoot" in reloaded
-        for sub in ("pass", "shoot"):
-            assert "kmeans" in reloaded[sub] and "scaler" in reloaded[sub] and "pca" in reloaded[sub]
+        for key, _, _ in train.MODEL_SPECS:
+            assert key in reloaded
+            assert "kmeans" in reloaded[key] and "scaler" in reloaded[key]
 
-    print(
-        f"OK: test_full_pipeline_with_fake_data "
-        f"(pass: k={pass_result['best_k']}, silhouette={pass_result['best_score']:.3f}, mismatch={pass_mismatch_rate:.2f} / "
-        f"shoot: k={shoot_result['best_k']}, silhouette={shoot_result['best_score']:.3f}, mismatch={shoot_mismatch_rate:.2f})"
+    summary_str = ", ".join(
+        f"{key}: k={r['best_k']}, silhouette={r['best_score']:.3f}, mismatch={mismatch_rates[key]:.2f}"
+        for (key, _, _), r in zip(train.MODEL_SPECS, results)
     )
+    print(f"OK: test_full_pipeline_with_fake_data ({summary_str})")
 
 
 if __name__ == "__main__":

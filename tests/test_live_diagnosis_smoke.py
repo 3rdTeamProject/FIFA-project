@@ -14,6 +14,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "style"))
 sys.path.insert(0, os.path.join(REPO_ROOT, "tests"))
 
+import numpy as np
 import pandas as pd
 
 import live_diagnosis as ld
@@ -140,6 +141,22 @@ def test_score_squad_changes_when_slot_is_swapped():
     print("OK: test_score_squad_changes_when_slot_is_swapped")
 
 
+class _FakeKMeans:
+    """generate_diagnosis_sentence()가 _ordered_cluster_labels()에서 참조하는
+    cluster_centers_만 흉내내는 최소 가짜 객체. 실제 학습된 모델(재학습마다 값이
+    바뀜)에 테스트를 의존시키지 않기 위해 쓴다."""
+
+    def __init__(self, cluster_centers_ascending):
+        self.cluster_centers_ = np.array([[v] for v in cluster_centers_ascending])
+
+
+def _fake_style_model():
+    return {
+        "heading": {"kmeans": _FakeKMeans([0.05, 0.2])},  # 군집0=낮음, 군집1=높음
+        "shot_location": {"kmeans": _FakeKMeans([0.15, 0.3])},  # 군집0=박스안, 군집1=중거리
+    }
+
+
 def test_generate_diagnosis_sentence_mentions_weakest_position():
     user_style = {
         "short_pass_ratio": 0.7, "long_pass_ratio": 0.1,
@@ -149,10 +166,18 @@ def test_generate_diagnosis_sentence_mentions_weakest_position():
     }
     squad = [{"sp_id": sp_id, "sp_position": pos} for sp_id, pos in zip(MAIN_SQUAD_IDS, SQUAD_POSITIONS)]
     squad_scores = ld.score_squad(user_style, squad, player_stats=_fake_player_stats())
-    # pass_cluster=1 -> "숏패스 위주", shoot_cluster=2 -> "헤딩슛 위주" (PASS/SHOOT_CLUSTER_LABELS 참고)
-    sentence = ld.generate_diagnosis_sentence(user_style, squad_scores, pass_cluster=1, shoot_cluster=2)
+    # pass_cluster=0 -> "숏패스 위주" (PASS_CLUSTER_LABELS 참고).
+    # heading_cluster=1 -> _fake_style_model() 기준 군집중심 0.2(더 높은 쪽)이라
+    # HEADING_LABELS_ASCENDING[1]="헤딩슛을 섞어 쓰는 편".
+    # shot_location_cluster=0 -> 군집중심 0.15(더 낮은 쪽)이라
+    # SHOT_LOCATION_LABELS_ASCENDING[0]="박스 안(인패널티) 위주".
+    sentence = ld.generate_diagnosis_sentence(
+        user_style, squad_scores, pass_cluster=0, heading_cluster=1,
+        shot_location_cluster=0, model=_fake_style_model(),
+    )
     assert "숏패스 위주" in sentence
-    assert "헤딩슛 위주" in sentence
+    assert "헤딩슛을 섞어 쓰는 편" in sentence
+    assert "박스 안(인패널티) 위주" in sentence
     valid = [r for r in squad_scores["slots"] if r["position_fit"] == r["position_fit"]]
     worst = min(valid, key=lambda r: r["position_fit"])
     assert worst["pos_name"] in sentence

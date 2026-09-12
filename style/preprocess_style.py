@@ -18,6 +18,17 @@ match_team_data.csv 파싱 및 패스/슛 스타일 feature 조립.
   - K-means 외 GMM/계층적/Spectral/DBSCAN도 비교해봤지만(팀 결정으로 최종은 K-means만
     사용) 이 표본 크기(수백 명)·차원(2~4개)에서 K-means보다 확실히 나은 대안은 없었다.
 
+2026-09-08 추가 결정: "슛 모델 2개 feature(in_penalty+heading) 통합 1개 모델"도 같은
+이유로 다시 쪼갰다 — **헤딩축(heading_shoot_ratio 단독) + 슛위치축
+(out_penalty_shoot_ratio 단독) 2개로 분리**. in_penalty/heading을 합쳐 군집화하면
+실루엣 0.36에 그쳤는데, 헤딩 단독 0.59 / out_penalty 단독 0.56으로 뚜렷이 개선됐다.
+in_penalty_shoot_ratio와 out_penalty_shoot_ratio는 상관계수 -0.99로 사실상 완전한
+여집합이라 두 축에 둘 다 넣을 필요가 없어 out_penalty만 군집 feature로 쓰고
+in_penalty는 REFERENCE_COLUMNS로 옮겼다(position_fit.py가 여전히 필요로 해서 계산은
+계속함). "헤딩 위주"와 "박스 안 위주"는 반대 개념이 아니라는 점에 주의 — 헤딩은
+대부분 박스 안 가까운 거리에서 나와 in_penalty_shoot_ratio와 자연히 겹치므로, 이
+둘은 "위치"(박스 안/중거리)와 "방식"(헤딩/발)이라는 서로 다른 축으로 이해해야 한다.
+
 컬럼 매핑은 2026-09-07에 data/style/match_team_data.csv를 직접 확인해 정리했다:
     matchId                                -> 경기 ID
     ouid                                   -> 유저 ID
@@ -29,11 +40,11 @@ match_team_data.csv 파싱 및 패스/슛 스타일 feature 조립.
     dribble                                -> 팀 드리블 야드 (참고용, 군집 feature 아님)
     shootTotal / shootHeading / shootInPenalty -> 슛 시도
 ⚠️ shootOutPenalty는 shootInPenalty와 거의 완전한 여집합(실측 89%가 정확히
-   shootInPenalty+shootOutPenalty=shootTotal)이라 **군집화(K-means) feature로는**
-   새 정보가 거의 없어 쓰지 않는다. 다만 position_fit.py의 궁합 점수 계산에서는
-   "중거리슛" 카드 스탯을 매핑할 축이 필요해서 out_penalty_shoot_ratio로 계산은
-   해서 반환한다(REFERENCE_COLUMNS 참고, PASS/SHOOT_FEATURE_COLUMNS에는 포함 안 함
-   — 군집 결과 자체는 안 바뀜).
+   shootInPenalty+shootOutPenalty=shootTotal, 상관계수 -0.99)이라 **군집화(K-means)
+   feature로는 out_penalty_shoot_ratio 하나만 쓴다**(2026-09-08 결정, SHOT_LOCATION_
+   FEATURE_COLUMNS 참고) — 둘 다 넣어봤자 같은 정보를 중복으로 넣는 셈이라서다.
+   in_penalty_shoot_ratio는 군집화에는 안 쓰지만 position_fit.py의 슛 궁합 점수 계산에
+   여전히 필요해 REFERENCE_COLUMNS로 계속 계산해서 반환한다.
 ⚠️ bouncingLobPassTry도 시도해봤지만 대부분 유저가 0에 가까운 값만 가져(변별력 없음)
    빼기로 했다.
 ⚠️ shootPenaltyKick/shootFreekick(세트피스)는 상대 반칙에 좌우되는 값이라 CLAUDE.md의
@@ -82,20 +93,20 @@ SHOOT_HEADING_COL = "shootHeading"
 SHOOT_IN_PENALTY_COL = "shootInPenalty"
 SHOOT_OUT_PENALTY_COL = "shootOutPenalty"
 
-# 패스 모델과 슛 모델을 분리해서 각각 K-means로 군집화한다(위 docstring 참고).
+# 패스/헤딩/슛위치 3개 모델을 분리해서 각각 K-means로 군집화한다(위 docstring 참고).
 PASS_FEATURE_COLUMNS = [
     "short_pass_ratio",
     "long_pass_ratio",
     "through_pass_ratio",
     "driven_ground_pass_ratio",
 ]
-SHOOT_FEATURE_COLUMNS = [
-    "in_penalty_shoot_ratio",
-    "heading_shoot_ratio",
-]
+HEADING_FEATURE_COLUMNS = ["heading_shoot_ratio"]
+SHOT_LOCATION_FEATURE_COLUMNS = ["out_penalty_shoot_ratio"]
 # 군집(K-means) feature로는 안 쓰지만, 진단 문장 참고 수치 또는 position_fit.py의
-# 궁합 점수 계산에 필요해서 계속 계산해서 반환한다.
-REFERENCE_COLUMNS = ["dribble_intensity", "out_penalty_shoot_ratio"]
+# 궁합 점수 계산에 필요해서 계속 계산해서 반환한다. in_penalty_shoot_ratio는
+# out_penalty_shoot_ratio와 상관계수 -0.99라 군집화엔 안 쓰지만(위 docstring 2026-09-08
+# 결정), position_fit.py의 SHOOT_FIT_AXES가 여전히 필요로 한다.
+REFERENCE_COLUMNS = ["dribble_intensity", "in_penalty_shoot_ratio"]
 # ====================================================
 
 
@@ -152,7 +163,10 @@ def aggregate_user_style(rows_df, min_matches=MIN_MATCHES_PER_USER):
     ⚠️ 티어(division) 정규화는 의도적으로 하지 않는다. 진단 화면에서 "관찰적 진단"을
     제시하기 위해, 유저 본인의 원본 비율 그대로 쓴다 (style/README.md 참고).
     """
-    all_columns = ["ouid", "n_matches"] + PASS_FEATURE_COLUMNS + SHOOT_FEATURE_COLUMNS + REFERENCE_COLUMNS
+    all_columns = (
+        ["ouid", "n_matches"] + PASS_FEATURE_COLUMNS + HEADING_FEATURE_COLUMNS
+        + SHOT_LOCATION_FEATURE_COLUMNS + REFERENCE_COLUMNS
+    )
     if rows_df.empty:
         return pd.DataFrame(columns=all_columns)
 
@@ -201,7 +215,7 @@ def aggregate_user_style(rows_df, min_matches=MIN_MATCHES_PER_USER):
         lambda r: _safe_ratio(r["shoot_out_penalty"], r["shoot_total"]), axis=1
     )
 
-    feature_columns = PASS_FEATURE_COLUMNS + SHOOT_FEATURE_COLUMNS
+    feature_columns = PASS_FEATURE_COLUMNS + HEADING_FEATURE_COLUMNS + SHOT_LOCATION_FEATURE_COLUMNS
     before = len(grouped)
     style_df = grouped.dropna(subset=feature_columns).copy()
     dropped = before - len(style_df)

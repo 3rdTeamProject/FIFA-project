@@ -48,27 +48,52 @@ POS_NAME = {
     25: "ST", 26: "LS", 27: "LW", 28: "SUB",
 }
 
-# 군집 번호 -> 사후 라벨 (data/style/style_diagnosis_baseline_summary.txt의 [군집별 feature
-# 평균]을 보고, 각 군집이 다른 군집 대비 뚜렷하게 높은 feature를 기준으로 붙였다 —
+# 패스 모델: 군집 번호 -> 사후 라벨 (2026-09-08, 137명/MIN_MATCHES_PER_USER=50 기준
+# data/style/style_diagnosis_baseline_summary.txt의 [군집별 feature 평균]을 보고, 각
+# 군집이 다른 군집 대비 뚜렷하게 높은 feature를 기준으로 붙였다 —
 # CLAUDE.md 원칙 #4: 이름은 군집 결과가 나온 뒤 사후에 붙인다).
-#   pass  0: through_pass_ratio가 세 군집 중 가장 높음(0.198 vs 0.128/0.132)
-#   pass  1: short_pass_ratio가 압도적으로 높고 나머지가 다 낮음(0.764)
-#   pass  2: driven_ground_pass_ratio가 세 군집 중 가장 높음(0.164 vs 0.058/0.059)
-#   shoot 0: in_penalty는 2와 비슷하게 높지만 heading이 셋 중 가장 낮음(0.090)
-#   shoot 1: in_penalty_shoot_ratio가 셋 중 가장 낮음(0.689) -> 상대적으로 중거리슛 비중 ↑
-#   shoot 2: heading_shoot_ratio가 다른 군집의 두 배 이상(0.218)
+#   0: short_pass_ratio가 압도적(0.763)
+#   1: through_pass_ratio가 세 군집 중 가장 높음(0.201 vs 0.134/0.145)
+#   2: driven_ground_pass_ratio가 세 군집 중 가장 높음(0.168 vs 0.051/0.058)
 # ⚠️ models/style_diagnosis_baseline.joblib을 train_style.py로 다시 학습하면 군집 번호
 # 순서가 바뀔 수 있다 — 재학습 시 반드시 새 요약 파일을 다시 보고 이 매핑을 갱신할 것.
+# 실제로 2026-09-08 재학습 때 이 갱신을 빠뜨려 0번/1번이 뒤바뀐 채로 남아있던 걸 뒤늦게
+# 발견해 바로잡았다 (패스는 feature가 4개라 헤딩/슛위치축처럼 "값 순서로 자동 정렬"이
+# 안 통해 계속 하드코딩한다 — 그래서 특히 재학습 후 갱신을 잊지 않도록 주의할 것).
 PASS_CLUSTER_LABELS = {
-    0: "스루패스 위주",
-    1: "숏패스 위주",
+    0: "숏패스 위주",
+    1: "스루패스 위주",
     2: "드리븐그라운드패스 위주",
 }
-SHOOT_CLUSTER_LABELS = {
-    0: "박스 안(인패널티) 슈팅 위주",
-    1: "중거리슛 위주",
-    2: "헤딩슛 위주",
-}
+
+# 헤딩축/슛위치축: feature가 1개뿐이라 "군집 중심값이 낮은 쪽 -> 높은 쪽" 순서로 아래
+# 라벨을 자동 배정한다(_ordered_cluster_labels 참고). PASS_CLUSTER_LABELS와 달리 재학습
+# 으로 군집 번호(0/1/2...)가 바뀌어도 라벨이 저절로 따라가므로 수동 갱신이 필요 없다 —
+# 2026-09-08에 재학습 후 SHOOT_CLUSTER_LABELS를 안 고쳐서 라벨이 실제 군집 특성과
+# 어긋났던 문제(3군집 모델 기준 라벨이 2군집 모델에 그대로 남아있었음)를 겪은 뒤 이
+# 방식으로 바꿨다. heading은 지금까지 모든 실험에서 k=2가 자연스러운 argmax였고,
+# shot_location은 2026-09-12부터 train_style.py의 FIXED_K_OVERRIDES로 k=2를 강제
+# 채택한다(표본이 늘며 argmax가 재현성 낮은 k=6으로 흔들려서 — train_style.py 주석 참고).
+# 둘 다 k가 2가 아니게 되면 아래 리스트 길이와 안 맞아 자동으로 "군집 N" 형태 대체
+# 라벨로 넘어간다.
+HEADING_LABELS_ASCENDING = ["발슛 위주(헤딩 적은 편)", "헤딩슛을 섞어 쓰는 편"]
+SHOT_LOCATION_LABELS_ASCENDING = ["박스 안(인패널티) 위주", "중거리슛을 섞어 쓰는 편"]
+
+
+def _ordered_cluster_labels(kmeans, label_texts_ascending):
+    """kmeans(단일 feature 기준 cluster_centers_)를 값이 낮은 순서로 정렬해, 그 순서대로
+    label_texts_ascending을 군집 번호에 배정한다.
+
+    표준화(StandardScaler)된 공간의 중심값이라도 원래 값과 대소 순서는 그대로 보존되므로
+    (선형 변환, 스케일 계수가 항상 양수) 순위 매기기에 그대로 써도 된다. 군집 개수가
+    label_texts_ascending 길이와 다르면(예: 재학습으로 k가 바뀌면) 빈 dict를 반환해
+    호출부가 "군집 N" 형태의 대체 라벨로 자연스럽게 넘어가게 한다.
+    """
+    n_clusters = kmeans.cluster_centers_.shape[0]
+    if n_clusters != len(label_texts_ascending):
+        return {}
+    order = np.argsort(kmeans.cluster_centers_[:, 0])
+    return {int(cluster_id): label_texts_ascending[rank] for rank, cluster_id in enumerate(order)}
 # ====================================================
 
 
@@ -137,7 +162,7 @@ def matches_to_style_rows(ouid, match_infos):
 
 def compute_user_style(raw_rows_df):
     """matches_to_style_rows()가 만든 원시(camelCase) DataFrame -> position_fit.py가
-    요구하는 7개 키를 가진 유저 스타일 비율 dict.
+    요구하는 키를 가진 유저 스타일 비율 dict.
 
     preprocess_style.extract_match_style_rows()로 몰수/오류 경기를 거르고 snake_case
     컬럼으로 바꾼 뒤, aggregate_user_style()로 비율을 낸다 — 두 단계 다 재사용(중복 구현
@@ -149,23 +174,41 @@ def compute_user_style(raw_rows_df):
     if style_df.empty:
         return None
     row = style_df.iloc[0]
-    columns = preprocess.PASS_FEATURE_COLUMNS + preprocess.SHOOT_FEATURE_COLUMNS + preprocess.REFERENCE_COLUMNS
+    columns = (
+        preprocess.PASS_FEATURE_COLUMNS + preprocess.HEADING_FEATURE_COLUMNS
+        + preprocess.SHOT_LOCATION_FEATURE_COLUMNS + preprocess.REFERENCE_COLUMNS
+    )
     return {col: row[col] for col in columns}
 
 
-def predict_style_clusters(user_style):
-    """학습된 style_diagnosis_baseline.joblib으로 pass/shoot 군집 라벨을 예측한다."""
-    model = joblib.load(MODEL_PATH)
+def load_style_model(path=MODEL_PATH):
+    """style_diagnosis_baseline.joblib을 로드한다 (모델별 scaler+kmeans+pca dict).
 
-    x_pass = [[user_style[c] for c in preprocess.PASS_FEATURE_COLUMNS]]
-    x_shoot = [[user_style[c] for c in preprocess.SHOOT_FEATURE_COLUMNS]]
+    diagnose()가 한 번만 로드해서 predict_style_clusters()와
+    generate_diagnosis_sentence() 둘 다에 넘겨쓴다(파일을 두 번 읽지 않기 위함).
+    """
+    return joblib.load(path)
 
-    pass_scaled = model["pass"]["scaler"].transform(x_pass)
-    shoot_scaled = model["shoot"]["scaler"].transform(x_shoot)
 
-    pass_cluster = int(model["pass"]["kmeans"].predict(pass_scaled)[0])
-    shoot_cluster = int(model["shoot"]["kmeans"].predict(shoot_scaled)[0])
-    return pass_cluster, shoot_cluster
+def predict_style_clusters(user_style, model=None):
+    """학습된 모델로 pass/heading/shot_location 군집 라벨을 예측한다.
+
+    model을 안 넘기면 MODEL_PATH에서 새로 로드한다(단독 호출/테스트 편의용).
+    """
+    if model is None:
+        model = load_style_model()
+
+    model_feature_columns = {
+        "pass": preprocess.PASS_FEATURE_COLUMNS,
+        "heading": preprocess.HEADING_FEATURE_COLUMNS,
+        "shot_location": preprocess.SHOT_LOCATION_FEATURE_COLUMNS,
+    }
+    clusters = {}
+    for key, feature_columns in model_feature_columns.items():
+        x = [[user_style[c] for c in feature_columns]]
+        x_scaled = model[key]["scaler"].transform(x)
+        clusters[key] = int(model[key]["kmeans"].predict(x_scaled)[0])
+    return clusters["pass"], clusters["heading"], clusters["shot_location"]
 
 
 def build_current_squad(match_infos):
@@ -223,7 +266,8 @@ def score_squad(user_style, squad, player_stats=None):
     return {"slots": results, "squad_fit_score": squad_fit_score}
 
 
-def generate_diagnosis_sentence(user_style, squad_scores, pass_cluster, shoot_cluster):
+def generate_diagnosis_sentence(user_style, squad_scores, pass_cluster, heading_cluster,
+                                 shot_location_cluster, model=None):
     """규칙 기반 진단 문장 (CLAUDE.md 핵심 기능 5번 예시 형식).
 
     특정 카드를 콕 집어 추천하지 않고, 가장 궁합이 낮은 포지션과 방향성만 제시한다.
@@ -231,14 +275,26 @@ def generate_diagnosis_sentence(user_style, squad_scores, pass_cluster, shoot_cl
     패스/슛 스타일은 유저 본인의 raw 비율 중 max()로 뽑지 않는다 — 축구 게임 특성상
     거의 모든 유저가 short_pass_ratio가 제일 커서, max()로는 사실상 항상 "숏패스 위주"만
     나오고 predict_style_clusters()가 계산한 K-means 군집 배정 결과가 버려지는 문제가
-    있었다. 대신 그 유저가 실제로 배정된 pass_cluster/shoot_cluster 번호를
-    PASS_CLUSTER_LABELS/SHOOT_CLUSTER_LABELS로 사후 라벨링해 사용한다.
+    있었다. 대신 그 유저가 실제로 배정된 pass_cluster/heading_cluster/shot_location_cluster
+    번호를 라벨로 사후 매핑해 사용한다. 헤딩축/슛위치축은 PASS_CLUSTER_LABELS처럼
+    하드코딩하지 않고 _ordered_cluster_labels()로 군집 중심값 순서에서 자동으로 뽑는다
+    (재학습으로 군집 번호가 바뀌어도 라벨이 안 어긋나게 하기 위함 — 위 상수 정의부 참고).
     """
+    if model is None:
+        model = load_style_model()
+
     pass_label = PASS_CLUSTER_LABELS.get(pass_cluster, f"패스 군집 {pass_cluster}")
-    shoot_label = SHOOT_CLUSTER_LABELS.get(shoot_cluster, f"슛 군집 {shoot_cluster}")
+    heading_labels = _ordered_cluster_labels(model["heading"]["kmeans"], HEADING_LABELS_ASCENDING)
+    heading_label = heading_labels.get(heading_cluster, f"헤딩 군집 {heading_cluster}")
+    shot_location_labels = _ordered_cluster_labels(
+        model["shot_location"]["kmeans"], SHOT_LOCATION_LABELS_ASCENDING
+    )
+    shot_location_label = shot_location_labels.get(
+        shot_location_cluster, f"슛위치 군집 {shot_location_cluster}"
+    )
 
     valid = [r for r in squad_scores["slots"] if r["position_fit"] == r["position_fit"]]
-    lines = [f"당신은 {pass_label} · {shoot_label} 스타일입니다."]
+    lines = [f"당신은 {pass_label} · {shot_location_label} · {heading_label} 스타일입니다."]
     if valid:
         worst = min(valid, key=lambda r: r["position_fit"])
         lines.append(
@@ -258,25 +314,30 @@ def diagnose(nickname, n_matches=N_MATCHES):
     if user_style is None:
         return {"ouid": ouid, "error": "정상종료 경기가 없어 스타일을 계산할 수 없습니다"}
 
-    pass_cluster, shoot_cluster = predict_style_clusters(user_style)
+    model = load_style_model()
+    pass_cluster, heading_cluster, shot_location_cluster = predict_style_clusters(user_style, model)
 
     squad, match_result = build_current_squad(match_infos)
     if squad is None:
         return {
             "ouid": ouid, "user_style": user_style,
-            "pass_cluster": pass_cluster, "shoot_cluster": shoot_cluster,
+            "pass_cluster": pass_cluster, "heading_cluster": heading_cluster,
+            "shot_location_cluster": shot_location_cluster,
             "squad": None, "squad_scores": None, "sentence": None,
             "error": match_result,
         }
 
     squad_scores = score_squad(user_style, squad)
-    sentence = generate_diagnosis_sentence(user_style, squad_scores, pass_cluster, shoot_cluster)
+    sentence = generate_diagnosis_sentence(
+        user_style, squad_scores, pass_cluster, heading_cluster, shot_location_cluster, model
+    )
 
     return {
         "ouid": ouid,
         "user_style": user_style,
         "pass_cluster": pass_cluster,
-        "shoot_cluster": shoot_cluster,
+        "heading_cluster": heading_cluster,
+        "shot_location_cluster": shot_location_cluster,
         "squad": squad,
         "squad_match_result": match_result,
         "squad_scores": squad_scores,

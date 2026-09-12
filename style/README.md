@@ -16,11 +16,12 @@
   어떻게 플레이했는가"를 본다. 몰수/오류 경기(`matchEndType != 0`)는 제외한다 — 실측 결과
   `matchEndType`은 0=정상종료(승/무/패 모두 존재), 1=몰수승, 2=몰수패, 4=오류(이 경우
   나머지 스탯 필드가 전부 NULL)로 확인됨.
-- `train_style.py` — 패스 모델과 슛 모델을 **각각 독립적으로** StandardScaler 표준화 후
-  k=2~6 KMeans를 전부 시도해 실루엣 점수가 가장 높은 k를 사후에 선택(CLAUDE.md 원칙 #4:
-  유형 개수를 미리 정하지 않음). 유저마다 `pass_style_type`, `shoot_style_type` 두 개의
-  군집 라벨이 나온다. PCA(2차원, 모델별로 별도)는 군집화가 아니라 시각화 좌표 추출에만
-  사용.
+- `train_style.py` — 패스/헤딩/슛위치 3개 모델을 **각각 독립적으로** StandardScaler
+  표준화 후 k=2~6 KMeans를 전부 시도해 실루엣 점수가 가장 높은 k를 사후에 선택
+  (CLAUDE.md 원칙 #4: 유형 개수를 미리 정하지 않음). 유저마다 `pass_style_type`,
+  `heading_style_type`, `shot_location_style_type` 세 개의 군집 라벨이 나온다.
+  PCA(모델별로 별도, feature가 1개뿐인 헤딩/슛위치축은 1차원)는 군집화가 아니라
+  시각화 좌표 추출에만 사용. `MODEL_SPECS` 리스트 하나만으로 3개 모델을 루프 처리한다.
 - `utils.py` — 저장 공통 함수 (winrate/utils.py와 동일 내용, 트랙 독립성을 위해 복제).
 - `position_fit.py` — 진단된 스타일 비율과 `player_stats_final.csv` 카드 스탯 사이의
   코사인 유사도로 포지션별/스쿼드 궁합 점수(position_fit_score)를 계산한다. K-means
@@ -49,9 +50,45 @@
   했다. DBSCAN은 대부분(최대 89%)을 "노이즈"로 분류해버려 전원 진단이 필요한 목적에 안
   맞았고, Spectral/Agglomerative는 K-means보다 나은 점이 없었다.
 
-패스 모델과 슛 모델을 분리한 결과 (`data/style/style_diagnosis_baseline_summary.txt` 참고):
+패스 모델과 슛 모델을 분리한 결과 (초기 284명 baseline 기준):
 - 패스 모델 k=3: 스루패스형(90명) / 숏패스형(142명) / 드리븐그라운드패스형(52명)
 - 슛 모델 k=3: 박스안슛형(113명) / 중거리슛형(104명) / 헤딩형(67명)
+
+### 헤딩축/슛위치축 분리 (2026-09-08 결정)
+슛 모델(in_penalty_shoot_ratio + heading_shoot_ratio 2개 feature 통합)도 같은 이유로
+다시 쪼갰다. `in_penalty_shoot_ratio`와 `out_penalty_shoot_ratio`는 상관계수 -0.99로
+사실상 완전한 여집합이라 군집화 feature로는 out_penalty 하나만 쓰면 충분하다는 것도
+이때 확인했다.
+- 슛 모델(in_penalty+heading 통합): 실루엣 0.36
+- **헤딩축(heading_shoot_ratio 단독)**: 실루엣 0.59 / **슛위치축(out_penalty_shoot_ratio
+  단독)**: 실루엣 0.56 (둘 다 뚜렷이 개선)
+
+⚠️ "박스 안 위주"(위치)와 "헤딩 위주"(방식)는 반대 개념이 아니다 — 헤딩은 대부분 박스
+안 가까운 거리에서 나오므로 두 값이 자연히 같이 높게 나올 수 있다. 실제로 두 신규
+군집 모두 in_penalty_shoot_ratio가 74~83%로 높게 나왔고, 두 군집을 실제로 가르는 건
+heading_shoot_ratio(0.17 vs 0.10, 거의 2배 차이)다.
+
+137명(2026-09-08, MIN_MATCHES_PER_USER=50) 기준 결과 (당시 `style_diagnosis_baseline_summary.txt`):
+- 패스 모델 k=3: 숏패스형(67명) / 스루패스형(47명) / 드리븐그라운드패스형(23명)
+- 헤딩축 k=2: 헤딩을 섞어 쓰는 편(35명) / 발슛 위주(102명)
+- 슛위치축 k=2: 박스 안 위주(66명) / 중거리를 섞어 쓰는 편(71명)
+
+### 슛위치축 k 고정 (2026-09-12 결정)
+match_team_data.csv가 137명 → 319명으로 늘면서, 슛위치축의 k=2~6 실루엣이 0.535~0.553
+사이로 거의 평평해졌다(뚜렷한 유형 개수가 아니라 연속 스펙트럼에 가깝다는 신호). 그 좁은
+차이에서 실루엣 argmax가 k=6(0.5530)으로 바뀌었는데, `check_cluster_stability.py`
+재현성 검증(random_state 50회 반복, ARI)에서 k=6은 재현율 49%로 5개 후보 중 가장
+불안정했다(k=2/3/4/5는 전부 100%). 재현성만으로 타이브레이크하면 k=5(실루엣 0.5526)가
+나오지만, out_penalty_shoot_ratio 자체가 "박스 안 vs 중거리" 이분법 성격이 강하고
+헤딩축과 구조가 같아 해석이 쉬운 **k=2를 팀 결정으로 고정**했다(`train_style.py`의
+`FIXED_K_OVERRIDES`). k=2~6 탐색 자체는 여전히 다 수행하고 결과도 요약 파일에 전부
+남긴다 — 최종 채택만 덮어쓴다.
+
+⚠️ 재학습마다 K-means가 배정하는 군집 번호(0/1/2...) 순서가 바뀔 수 있어, `live_diagnosis.py`의
+`PASS_CLUSTER_LABELS`(하드코딩, 재학습 후 수동 갱신 필요)가 실제로 한 번 안 맞은 채
+남아있던 적이 있다. 헤딩축/슛위치축은 `_ordered_cluster_labels()`로 군집 중심값 순서에서
+라벨을 자동으로 뽑도록 바꿔 이 문제가 재발하지 않게 했다 — 패스는 feature가 4개라 이
+방식이 안 통해 여전히 하드코딩이며, 재학습 후 반드시 라벨을 확인/갱신해야 한다.
 
 ## 확정된 설계 결정
 

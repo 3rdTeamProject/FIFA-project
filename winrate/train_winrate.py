@@ -58,7 +58,10 @@ FEATURE_COLUMNS = preprocess.GROUP_SCORE_COLUMNS + ["tier"]
 # "이제 이 버전으로 확정한다"고 결론 낸 뒤 딱 한 번 True로 바꿔서 최종 test 성능만 확인한다.
 # 여러 번 실행해보며 test 결과를 보고 feature를 고르면, test가 사실상 validation처럼
 # 쓰이게 돼 최종 숫자가 실제보다 낙관적으로 부풀려진다 (test set leakage).
-EVALUATE_TEST_SET = False
+# 2026-09-12: 카드 데이터 100% 매칭 + squad_fit_score 승률 상관관계까지 확인된 뒤 팀
+# 결정으로 최종 확인 시점이라고 판단해 True로 전환, 한 번 확인했다 — 다시 feature를
+# 실험하게 되면 반드시 False로 되돌릴 것 (test set을 또 들여다보면 leakage).
+EVALUATE_TEST_SET = True
 # ====================================================
 
 

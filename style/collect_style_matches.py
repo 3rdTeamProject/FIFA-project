@@ -35,9 +35,17 @@ API_KEY = os.environ.get("NEXON_API_KEY", "여기에_발급받은_API_키")
 # 아래부터 실행 전에 직접 채워야 하는 값. winrate 트랙과 같은 시드를 재사용해도 되고
 # (CLAUDE.md: 두 트랙에 유저가 겹쳐도 문제없음), 스타일 진단은 표본 다양성이 더 중요하니
 # 팀원 닉네임 등으로 자유롭게 바꿔도 된다.
-SEED_NICKNAMES = ["바람과함께살빼다", "고대넘버원호동생", "내일모레의용재시"]
+SEED_NICKNAMES = ["피파재미없음", "경품싹쓸이", "감형", "준서누뗄라이련아", "당신은승리자"]
 MATCHTYPE = 50  # 공식경기 (winrate/snowball_collect.py에서 확정된 값과 동일)
 MAX_MATCHES_PER_USER = 100  # api-constraints.md: /user/match limit 최대값
+# match_team_data.csv 실측 기준 몰수/오류 경기 비율이 22.5%였다(2026-09-08 확인).
+# 학습 하한선을 아직 50/60/70 중 뭘로 정할지 팀 결정 전이라(2026-09-08 기준 열린 논의),
+# 어느 쪽으로 정해지든 다시 수집할 필요 없게 가장 보수적인 쪽으로 넉넉히 모아둔다.
+# "정상종료 70경기"를 기대값 수준에서 넘기려면 원본 매치가 최소 70/(1-0.225)=90.3개는
+# 있어야 한다(정상종료 기대값 = 원본 개수 x (1 - 0.225)). MAX_MATCHES_PER_USER(=100)에
+# 근접한 유저만 사실상 통과하는 셈이라 자격 유저 풀은 확 줄어들지만, 그만큼 수집된
+# 유저는 학습 하한선이 나중에 70으로 정해져도 안전하다.
+MIN_SAMPLE_MATCHES = 90
 DAILY_CALL_BUDGET = 950  # 일일 한도 1,000 중 여유 100 남김
 REQUEST_INTERVAL = 0.35  # 초당 5건 제한 대응
 
@@ -136,6 +144,13 @@ def main():
 
                 match_ids = get_match_list(ouid, MATCHTYPE, limit=MAX_MATCHES_PER_USER)
                 if not match_ids:
+                    continue
+                if len(match_ids) < MIN_SAMPLE_MATCHES:
+                    # 공식경기 자체가 학습 하한선(MIN_SAMPLE_MATCHES) 미만이면 나중에
+                    # preprocess_style.py에서 어차피 전량 제외되므로, match-detail을
+                    # 하나도 호출하지 않고 바로 넘어가 API 호출을 아낀다.
+                    print(f"  [건너뜀] {nickname}: 공식경기 {len(match_ids)}건 "
+                          f"(최소 {MIN_SAMPLE_MATCHES}건 미만이라 학습에 못 씀)")
                     continue
 
                 saved_for_user = 0

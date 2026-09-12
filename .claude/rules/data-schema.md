@@ -50,9 +50,15 @@
 - gk_avg_score (GK 전용 스탯 5개만 평균)
 - tier
 - result (타겟)
-- ~~formation~~ / ~~team_color~~ / ~~style_fit_score~~: 현재 baseline에서는 제외
-  (자리 조합표 미작성 / API 응답 존재 여부 미확인 / USER_STYLE_PROFILE 미구축). 추후 추가 시
-  같은 split(random_seed 고정)으로 이전 버전과 비교한다.
+- ~~formation~~: 영구 제외(2026-09-12) — formation_fit_score 자체를 범위에서 뺐으므로
+  (CLAUDE.md "명시적으로 범위에서 제외한 것" 참고) 이 feature의 원천 데이터가 없다.
+- ~~team_color~~: 현재 baseline에서는 제외(API 응답 존재 여부 미확인). 있으면 재검토.
+- **style_fit_score(=squad_fit_score) — 다음 작업 대상(2026-09-12)**: "궁합 점수가 실제
+  승률과 관련 있다"는 예비 검증(「스타일 궁합 승부예측 실험」, 201명·구 데이터 기준
+  val 정확도 50.9%→54.1%, squad_fit_score 계수 p=0.083 경계선)까지는 끝났고, 공식
+  WIN_PREDICTION_MODEL_INPUT에 정식 feature로 편입해 같은 split(random_seed 고정)으로
+  이전 baseline과 비교하는 작업이 남았다. USER_STYLE_PROFILE 표본(현재 319명, 50경기
+  이상)이 승률 트랙(수천 명, 1유저 1경기)보다 훨씬 좁다는 제약을 그대로 안고 간다.
 
 ⚠️ avg_score 계산 전 확인 필요:
 1. player_stats_final.csv가 4,187개 카드를 담고 있음 (2026-09-04 수집분 2,916개 +
@@ -61,9 +67,9 @@
    불분명하면 강화단계 무시하고 근사치로 쓰는 것을 한계로 명시
 
 ## 궁합 점수 (진단 화면에 표시, 별도 저장 테이블 없음 — 진단 시점에 즉시 계산)
-- position_fit_score: 포지션별 선수 스탯 벡터 vs 유저 스타일 벡터 유사도
+- position_fit_score: 포지션별 선수 스탯 벡터 vs 유저 스타일 벡터 유사도 (품질×스타일_배율, style/position_fit.py)
 - squad_fit_score: 스쿼드 11명 전체 단위로 집계한 궁합 점수
-- formation_fit_score: 포메이션(전술 구조) 자체의 궁합 점수 — 후보 포메이션들 중 최고점을 "추천 포메이션"으로 제시
+- ~~formation_fit_score~~: 범위에서 제외(2026-09-12, CLAUDE.md 참고) — 포메이션 추천은 하지 않는다.
 
 ## 제거된 엔티티 (다시 만들지 말 것)
 - MY_SQUAD, MY_SQUAD_SLOT: 유저가 직접 스쿼드를 등록/저장하는 기능은 없음.

@@ -62,16 +62,38 @@ def test_gk_defense_sub_excluded():
     print("OK: test_gk_defense_sub_excluded")
 
 
-def test_pass_only_groups_ignore_shoot_fit():
-    """DM/CM/WIDE_MID는 shoot_fit이 없어서 position_fit_score == pass_fit_score여야 한다."""
+def test_dm_cm_wide_mid_only_reflect_out_penalty_shoot():
+    """DM/CM/WIDE_MID는 2026-09-08부터 shoot_fit을 쓰지만, out_penalty_shoot_ratio
+    (중거리슛) 축만 있다 — 박스 안 마무리(in_penalty)/헤더는 매핑 자체가 없어서
+    극단적으로 바꿔도 shoot_fit_score에 영향이 없어야 하고, 중거리슛/슛파워를
+    바꾸면 영향이 있어야 한다."""
     style = _uniform_style()
-    card = _baseline_card(헤더=99, 점프=99)  # shoot 쪽을 극단적으로 바꿔도 영향 없어야 함
+    baseline_card = _baseline_card()
+    # 헤더/점프(heading 관련)와 골결정력/위치선정(in_penalty 관련)을 극단적으로
+    # 바꿔도 이 세 그룹은 매핑이 없어서 shoot_fit_score가 그대로여야 함.
+    irrelevant_card = _baseline_card(**{"헤더": 99, "점프": 99, "골 결정력": 99, "위치 선정": 99})
     for sp in [10, 14, 12]:  # CDM, CM, RM
-        assert math.isnan(pf.compute_shoot_fit_score(style, card, sp))
-        pass_fit = pf.compute_pass_fit_score(style, card, sp)
-        position_fit = pf.compute_position_fit_score(style, card, sp)
-        assert position_fit == pass_fit
-    print("OK: test_pass_only_groups_ignore_shoot_fit")
+        base_shoot = pf.compute_shoot_fit_score(style, baseline_card, sp)
+        irrelevant_shoot = pf.compute_shoot_fit_score(style, irrelevant_card, sp)
+        assert not math.isnan(base_shoot), f"spPosition={sp}: shoot_fit이 이제 NaN이면 안 됨"
+        assert abs(base_shoot - irrelevant_shoot) < 1e-9, (
+            f"spPosition={sp}: 헤더/골결정력 등은 이 그룹의 shoot_fit에 영향 없어야 함"
+        )
+
+        long_range_card = _baseline_card(**{"중거리 슛": 99, "슛 파워": 99})
+        long_range_shoot = pf.compute_shoot_fit_score(style, long_range_card, sp)
+        assert long_range_shoot > base_shoot, (
+            f"spPosition={sp}: 중거리슛/슛파워를 올리면 shoot_fit_score도 올라가야 함"
+        )
+
+        pass_fit = pf.compute_pass_fit_score(style, baseline_card, sp)
+        position_fit = pf.compute_position_fit_score(style, baseline_card, sp)
+        pass_weight, shoot_weight = pf.BOTH_GROUP_WEIGHTS[pf.group_of(sp)]
+        expected = pass_weight * pass_fit + shoot_weight * base_shoot
+        assert abs(position_fit - expected) < 1e-9, (
+            f"spPosition={sp}: position_fit_score가 BOTH_GROUP_WEIGHTS 가중결합과 안 맞음"
+        )
+    print("OK: test_dm_cm_wide_mid_only_reflect_out_penalty_shoot")
 
 
 def test_both_groups_combine_pass_and_shoot_with_role_weights():
@@ -80,7 +102,10 @@ def test_both_groups_combine_pass_and_shoot_with_role_weights():
     궁합을 받는 게 이상하다는 지적으로 도입됨)."""
     style = _uniform_style()
     card = _baseline_card()
-    sp_by_group = {"CAM": 18, "DEEP_FORWARD": 21, "WIDE_FORWARD": 23, "STRIKER": 25}
+    sp_by_group = {
+        "DM": 10, "CM": 14, "WIDE_MID": 12,
+        "CAM": 18, "DEEP_FORWARD": 21, "WIDE_FORWARD": 23, "STRIKER": 25,
+    }
     for group, sp in sp_by_group.items():
         pass_fit = pf.compute_pass_fit_score(style, card, sp)
         shoot_fit = pf.compute_shoot_fit_score(style, card, sp)
@@ -231,7 +256,7 @@ def test_out_penalty_style_prefers_long_range_shooter():
 if __name__ == "__main__":
     test_group_of_classifies_mirror_positions_identically()
     test_gk_defense_sub_excluded()
-    test_pass_only_groups_ignore_shoot_fit()
+    test_dm_cm_wide_mid_only_reflect_out_penalty_shoot()
     test_both_groups_combine_pass_and_shoot_with_role_weights()
     test_through_pass_style_prefers_vision_card_for_cm()
     test_striker_pass_fit_uses_receiving_stats()
